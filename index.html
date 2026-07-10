@@ -186,6 +186,17 @@
         await deleteDoc(doc(db, "residents", id));
         await deleteDoc(doc(db, "evaluations", id));
       },
+      // 서버(Firestore)에 저장된 거주인/평가 문서 전체 삭제 (전체 초기화, 백업 복원 전 초기화용)
+      async deleteAllResidentsAndEvaluations() {
+        const [resSnap, evalSnap] = await Promise.all([
+          getDocs(collection(db, "residents")),
+          getDocs(collection(db, "evaluations"))
+        ]);
+        const jobs = [];
+        resSnap.forEach(d => jobs.push(deleteDoc(doc(db, "residents", d.id))));
+        evalSnap.forEach(d => jobs.push(deleteDoc(doc(db, "evaluations", d.id))));
+        await Promise.all(jobs);
+      },
       // 평가 저장
       async saveEvaluation(residentId, evalData) {
         await setDoc(doc(db, "evaluations", residentId), evalData);
@@ -1417,27 +1428,38 @@
     const file=e.target.files[0];if(!file)return;
     if(!confirm("현재 데이터를 백업 파일로 덮어씁니다. 진행하시겠습니까?"))return;
     const reader=new FileReader();
-    reader.onload=function(ev){
+    reader.onload=async function(ev){
       try{
-        const db=JSON.parse(ev.target.result);
-        if(db.residents&&db.evaluations){
-          state.residents=db.residents;state.evaluations=db.evaluations;
-          if(db.questions){state.questions=db.questions;window.QuestionsManager.saveQuestions(db.questions);}
-          saveResidentsState();saveEvaluationsState();
+        const restoreData=JSON.parse(ev.target.result);
+        if(restoreData.residents&&restoreData.evaluations){
+          if(window._fb){
+            try{ setSyncStatus('loading'); await window._fb.deleteAllResidentsAndEvaluations(); }
+            catch(e){ console.error('기존 서버 데이터 삭제 실패:',e); }
+          }
+          state.residents=restoreData.residents;state.evaluations=restoreData.evaluations;
+          if(restoreData.questions){state.questions=restoreData.questions;window.QuestionsManager.saveQuestions(restoreData.questions);}
+          await saveResidentsState();await saveEvaluationsState();
           alert("복원 완료!");state.currentResidentId=null;loadDatabase();switchTab('dashboard');
         }else alert("파일 포맷이 맞지 않습니다.");
       }catch(err){alert("파싱 실패");}
     };reader.readAsText(file);
   }
-  function clearAllData(){
-    if(confirm("모든 데이터를 삭제하시겠습니까?")){
-      localStorage.clear();state.residents=[];state.evaluations={};state.currentResidentId=null;
-      loadDatabase();alert("초기화 완료");switchTab('dashboard');
+  async function clearAllData(){
+    if(!confirm("모든 데이터를 삭제하시겠습니까? 다른 기기와 동기화된 서버 데이터도 함께 삭제되며 복구할 수 없습니다."))return;
+    if(window._fb){
+      try{ setSyncStatus('loading'); await window._fb.deleteAllResidentsAndEvaluations(); setSyncStatus('ok'); }
+      catch(e){ console.error(e); alert("서버 데이터 삭제 중 오류가 발생했습니다: "+e.message); }
     }
+    localStorage.clear();state.residents=[];state.evaluations={};state.currentResidentId=null;
+    loadDatabase();alert("초기화 완료");switchTab('dashboard');
   }
 
-  function generateDemoData(){
+  async function generateDemoData(){
     if(state.residents.length>0&&!confirm("기존 데이터가 초기화되고 54명 데모 데이터로 덮어씁니다. 진행하시겠습니까?"))return;
+    if(window._fb){
+      try{ setSyncStatus('loading'); await window._fb.deleteAllResidentsAndEvaluations(); }
+      catch(e){ console.error('기존 서버 데이터 삭제 실패:',e); }
+    }
     const demoR=[],demoE={};
     const gangId="res_demo_gang";
     demoR.push({id:gangId,name:"강건",gender:"남",birthdate:"1989-10-10",diagnosis:"뇌병변",health:"good",notes:"네발 기기로 원내 이동함."});
