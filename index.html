@@ -730,6 +730,12 @@
   // ======== app.js (모바일 최적화 버전) ========
   const state={residents:[],evaluations:{},questions:[],currentTab:'dashboard',currentResidentId:null,currentCategorySubtab:'eating',filterStatus:'all',evalSubtab:'write',statsCategory:'eating',facilityReportCategory:'eating',questionsCategory:'eating',charts:[]};
 
+  // 사용자 입력값을 innerHTML에 삽입하기 전 XSS 방지용 이스케이프
+  const HTML_ESCAPE_MAP={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
+  function escapeHtml(str){
+    return String(str??"").replace(/[&<>"']/g,c=>HTML_ESCAPE_MAP[c]);
+  }
+
   document.addEventListener("DOMContentLoaded",()=>{
     switchTab('dashboard');
   });
@@ -759,6 +765,7 @@
 
   function handleLogoutClick(){
     if(confirm("로그아웃 하시겠습니까?")){
+      if(_fbUnsubscribe){ _fbUnsubscribe(); _fbUnsubscribe=null; }
       window._fbAuth.logout();
     }
   }
@@ -834,23 +841,32 @@
     else if(status==='loading'){el.className='text-amber-500 text-[10px]';el.innerText='● 동기화중...';}
     else if(status==='error'){el.className='text-red-400 text-[10px]';el.innerText='● 오프라인';}
   }
-  async function saveResidentsState(){
+  async function saveResidentsState(changedResident){
     localStorage.setItem("adl_v2_residents",JSON.stringify(state.residents));
     if(window._fb){
       try{
         setSyncStatus('loading');
-        // 변경된 거주인만 저장
-        for(const r of state.residents){ await window._fb.saveResident(r); }
+        if(changedResident){
+          // 변경된 거주인 1건만 저장 (불필요한 전체 쓰기 방지)
+          await window._fb.saveResident(changedResident);
+        }else{
+          for(const r of state.residents){ await window._fb.saveResident(r); }
+        }
         setSyncStatus('ok');
       }catch(e){setSyncStatus('error');console.error(e);}
     }
   }
-  async function saveEvaluationsState(){
+  async function saveEvaluationsState(changedId){
     localStorage.setItem("adl_v2_evaluations",JSON.stringify(state.evaluations));
     if(window._fb){
       try{
         setSyncStatus('loading');
-        for(const [id,ev] of Object.entries(state.evaluations)){ await window._fb.saveEvaluation(id,ev); }
+        if(changedId){
+          // 변경된 평가 1건만 저장 (불필요한 전체 쓰기 방지)
+          await window._fb.saveEvaluation(changedId,state.evaluations[changedId]);
+        }else{
+          for(const [id,ev] of Object.entries(state.evaluations)){ await window._fb.saveEvaluation(id,ev); }
+        }
         setSyncStatus('ok');
       }catch(e){setSyncStatus('error');console.error(e);}
     }
@@ -913,12 +929,12 @@
       item.innerHTML=`
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2">
-            <span class="text-sm font-bold text-slate-900">${r.name}</span>
-            <span class="text-[10px] text-slate-400">${r.gender}/${calculateAge(r.birthdate)}세</span>
+            <span class="text-sm font-bold text-slate-900">${escapeHtml(r.name)}</span>
+            <span class="text-[10px] text-slate-400">${escapeHtml(r.gender)}/${calculateAge(r.birthdate)}세</span>
           </div>
           <div class="flex items-center gap-1.5 mt-0.5">
-            <span class="text-[10px] px-1.5 bg-slate-100 text-slate-600 rounded">${r.room||'생활실 미지정'}</span>
-            <span class="text-[10px] text-slate-400 truncate max-w-[120px]">${r.diagnosis||''}</span>
+            <span class="text-[10px] px-1.5 bg-slate-100 text-slate-600 rounded">${escapeHtml(r.room||'생활실 미지정')}</span>
+            <span class="text-[10px] text-slate-400 truncate max-w-[120px]">${escapeHtml(r.diagnosis||'')}</span>
           </div>
         </div>
         <div class="flex-shrink-0 ml-2">
@@ -1007,8 +1023,9 @@
       data.id="res_"+Date.now();
       state.residents.push(data);
     }
-    saveResidentsState();loadDatabase();toggleAddResidentModal(false);
     const id=editId||state.residents[state.residents.length-1]?.id;
+    const saved=state.residents.find(r=>r.id===id);
+    saveResidentsState(saved);loadDatabase();toggleAddResidentModal(false);
     if(id)selectResident(id);
   }
 
@@ -1093,16 +1110,16 @@
         const isC=checked===opt.value;
         optsHtml+=`<label class="custom-radio ${isC?'active-option':''}" onclick="selectQuestionOption('${q.id}','${opt.value}',this)">
           <input type="radio" name="q_${q.id}" value="${opt.value}" ${isC?'checked':''}>
-          <div class="text-xs font-semibold text-slate-800">${opt.label}</div>
+          <div class="text-xs font-semibold text-slate-800">${escapeHtml(opt.label)}</div>
         </label>`;
       });
       div.innerHTML=`
         <div>
           <div class="flex items-center gap-2">
             <span class="bg-indigo-600 text-white font-bold text-[11px] w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0">${q.number}</span>
-            <h4 class="text-sm font-bold text-slate-900">${q.title}</h4>
+            <h4 class="text-sm font-bold text-slate-900">${escapeHtml(q.title)}</h4>
           </div>
-          <p class="text-xs text-slate-400 mt-1 ml-7">${q.description}</p>
+          <p class="text-xs text-slate-400 mt-1 ml-7">${escapeHtml(q.description)}</p>
         </div>
         <div class="space-y-2 ml-7">${optsHtml}</div>`;
       qContainer.appendChild(div);
@@ -1144,10 +1161,12 @@
     const resId=state.currentResidentId;if(!resId)return;
     if(!state.evaluations[resId])state.evaluations[resId]={scores:{},opinion:""};
     state.evaluations[resId].updatedAt=new Date().toISOString();
-    saveEvaluationsState();
     const done=isEvaluationFinished(resId);
+    if(done&&!state.evaluations[resId].opinion){
+      state.evaluations[resId].opinion=generateAutoClinicalOpinion(resId);
+    }
+    saveEvaluationsState(resId);
     if(done){
-      if(!state.evaluations[resId].opinion)state.evaluations[resId].opinion=generateAutoClinicalOpinion(resId);
       alert("평가가 완료되었습니다! 결과지를 확인하세요.");
       switchEvalSubtab('report');
     }else{
@@ -1181,7 +1200,7 @@
     const opEl=document.getElementById("rep-overall-clinical-opinion");
     if(done){
       if(!ev.opinion)ev.opinion=generateAutoClinicalOpinion(resId);
-      opEl.innerHTML=`<textarea onblur="updateOpinionText(this.value)" class="w-full bg-transparent border-0 text-[10px] text-slate-800 p-0 focus:outline-none leading-relaxed" rows="5">${ev.opinion}</textarea>`;
+      opEl.innerHTML=`<textarea onblur="updateOpinionText(this.value)" class="w-full bg-transparent border-0 text-[10px] text-slate-800 p-0 focus:outline-none leading-relaxed" rows="5">${escapeHtml(ev.opinion)}</textarea>`;
     }else{
       opEl.innerText="평가 대기 중...";
     }
@@ -1190,7 +1209,7 @@
   function updateOpinionText(v){
     const resId=state.currentResidentId;
     if(!resId||!state.evaluations[resId])return;
-    state.evaluations[resId].opinion=v;saveEvaluationsState();
+    state.evaluations[resId].opinion=v;saveEvaluationsState(resId);
   }
 
   function generateAutoClinicalOpinion(resId){
@@ -1236,7 +1255,7 @@
       const vals=labels.map(l=>((counts[l]/list.length)*100).toFixed(1));
       const card=document.createElement("div");
       card.className="glass-panel rounded-2xl p-4 border border-slate-200/60";
-      card.innerHTML=`<h3 class="text-xs font-bold text-slate-800 mb-1">${q.title}</h3><p class="text-[10px] text-slate-400 mb-3">${q.description}</p><div class="chart-wrapper"><canvas id="canvas_${q.id}"></canvas></div>`;
+      card.innerHTML=`<h3 class="text-xs font-bold text-slate-800 mb-1">${escapeHtml(q.title)}</h3><p class="text-[10px] text-slate-400 mb-3">${escapeHtml(q.description)}</p><div class="chart-wrapper"><canvas id="canvas_${q.id}"></canvas></div>`;
       gridEl.appendChild(card);
       const ctx=document.getElementById(`canvas_${q.id}`).getContext("2d");
       const isPie=q.options.length<=3;
@@ -1304,21 +1323,21 @@
       q.options.forEach((opt,i)=>{
         opHtml+=`<div class="bg-slate-50 rounded-xl p-2.5 space-y-1.5">
           <p class="text-[9px] font-bold text-slate-400">옵션 ${i+1}</p>
-          <input type="text" id="opt_lbl_${q.id}_${opt.value}" value="${opt.label}" placeholder="라벨명" class="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-xs bg-white">
-          <input type="text" id="opt_tmp_${q.id}_${opt.value}" value="${opt.template}" placeholder="결과지 줄글 템플릿" class="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-xs bg-white">
+          <input type="text" id="opt_lbl_${q.id}_${opt.value}" value="${escapeHtml(opt.label)}" placeholder="라벨명" class="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-xs bg-white">
+          <input type="text" id="opt_tmp_${q.id}_${opt.value}" value="${escapeHtml(opt.template)}" placeholder="결과지 줄글 템플릿" class="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-xs bg-white">
         </div>`;
       });
       card.innerHTML=`
         <div class="flex items-center gap-2">
-          <span class="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded font-bold">${q.categoryLabel} Q${q.number}</span>
+          <span class="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded font-bold">${escapeHtml(q.categoryLabel)} Q${q.number}</span>
         </div>
         <div>
           <label class="text-[10px] font-bold text-slate-500 block mb-1">문항 질문</label>
-          <input type="text" id="q_title_${q.id}" value="${q.title}" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs bg-slate-50">
+          <input type="text" id="q_title_${q.id}" value="${escapeHtml(q.title)}" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs bg-slate-50">
         </div>
         <div>
           <label class="text-[10px] font-bold text-slate-500 block mb-1">설명 문구</label>
-          <input type="text" id="q_desc_${q.id}" value="${q.description}" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs bg-slate-50">
+          <input type="text" id="q_desc_${q.id}" value="${escapeHtml(q.description)}" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs bg-slate-50">
         </div>
         <div class="space-y-2">
           <p class="text-[10px] font-bold text-slate-500">객관식 보기 및 템플릿</p>
