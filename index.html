@@ -345,9 +345,6 @@
           식사·간식·이동·물 4개 영역, 38개 문항으로 ADL 수행도와 지원 강도를 평가합니다. 답변 조합으로 임상 서술형 결과지와 통계가 자동 작성됩니다.
         </p>
         <div class="flex flex-col gap-2 pt-2 border-t border-slate-100">
-          <button onclick="generateDemoData()" class="w-full py-2.5 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow shadow-indigo-200 flex items-center justify-center gap-1.5">
-            <span class="text-xs">📝</span> 54명 가상 데모 데이터 주입
-          </button>
           <button onclick="switchTab('evaluation')" class="w-full py-2.5 bg-slate-900 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5">
             <span class="text-xs">➕</span> 개별 평가 바로가기
           </button>
@@ -1454,43 +1451,8 @@
     loadDatabase();alert("초기화 완료");switchTab('dashboard');
   }
 
-  async function generateDemoData(){
-    if(state.residents.length>0&&!confirm("기존 데이터가 초기화되고 54명 데모 데이터로 덮어씁니다. 진행하시겠습니까?"))return;
-    if(window._fb){
-      try{ setSyncStatus('loading'); await window._fb.deleteAllResidentsAndEvaluations(); }
-      catch(e){ console.error('기존 서버 데이터 삭제 실패:',e); }
-    }
-    const demoR=[],demoE={};
-    const gangId="res_demo_gang";
-    demoR.push({id:gangId,name:"강건",gender:"남",birthdate:"1989-10-10",diagnosis:"뇌병변",health:"good",notes:"네발 기기로 원내 이동함."});
-    const gangScores={"eat_01":"opt1","eat_02":"opt1","eat_03":"opt2","eat_04":"opt1","eat_05":"opt1","eat_06":"opt2","eat_07":"opt2","eat_08":"opt1","eat_09":"opt1","eat_10":"opt1","snack_01":"opt1","snack_02":"opt1","snack_03":"opt1","snack_04":"opt1","snack_05":"opt2","snack_06":"opt1","snack_07":"opt1","snack_08":"opt2","snack_09":"opt1","snack_10":"opt1","mob_01":"opt1","mob_02":"opt1","mob_03":"opt1","mob_04":"opt1","mob_05":"opt1","mob_06":"opt1","mob_07":"opt2","mob_08":"opt1","mob_09":"opt1","mob_10":"opt1","wat_01":"opt1","wat_02":"opt1","wat_03":"opt1","wat_04":"opt1","wat_05":"opt1","wat_06":"opt3","wat_07":"opt1","wat_08":"opt1"};
-    demoE[gangId]={scores:gangScores,opinion:"스스로 이동이 가능하며 식사, 간식을 원만히 섭취하고 있음.",updatedAt:new Date("2025-11-17").toISOString()};
-    const lns=["김","이","박","최","정","강","조","윤","장","임"],fns=["영수","영희","민수","민지","철수","순이","지훈","지은","성민","성희","태성","미선","정호","은정","진우","서연","도현","하은","예준","지아","우진","수아","현우","지원","준우","소윤","건우","서윤","민재","채원","준서","다은","연우","서현","현서","민호","혜원","태호","경희","종수","미경","영길","옥자","순자","춘자","창식","광태","삼식","두식","길동","의지","재철","희영"],rooms=["햇살방","바람방","하늘방","바다방","산새방","들꽃방"],diags=["뇌병변장애 1급","지적장애 2급","자폐성장애 1급","편마비","파킨슨병","뇌성마비"],hs=["good","very_good","bad","very_bad"];
-    for(let i=0;i<53;i++){
-      const id=`res_demo_${100+i}`;
-      demoR.push({id,name:lns[i%lns.length]+fns[i%fns.length],gender:i%2===0?"남":"여",birthdate:`${1950+(i*7)%50}-${String(1+i%12).padStart(2,'0')}-${String(1+i%28).padStart(2,'0')}`,diagnosis:diags[i%diags.length],room:rooms[i%rooms.length],health:hs[(i*3)%hs.length],notes:""});
-      const scores={};
-      state.questions.forEach(q=>{
-        const r=Math.random()*100;let v="opt1";
-        if(q.id==='snack_01'){v=r<56.6?"opt1":r<94.3?"opt2":"opt3";}
-        else if(q.id==='snack_03'){v=r<81.1?"opt2":r<91.1?"opt3":"opt1";}
-        else if(q.id==='snack_08'){v=r<94.3?"opt2":"opt1";}
-        else{v=r<60?"opt1":r<85?"opt2":r<95?"opt3":"opt4";if(!q.options.some(o=>o.value===v))v=q.options[0].value;}
-        scores[q.id]=v;
-      });
-      demoE[id]={scores,opinion:"",updatedAt:new Date().toISOString()};
-    }
-    state.residents=demoR;state.evaluations=demoE;
-    saveResidentsState();saveEvaluationsState();
-    // 소견 동기화
-    state.residents.forEach(r=>{if(!state.evaluations[r.id].opinion)state.evaluations[r.id].opinion=generateAutoClinicalOpinion(r.id);});
-    saveEvaluationsState();
-    alert("54명 데모 데이터가 생성되었습니다!");
-    state.currentResidentId=null;loadDatabase();switchTab('dashboard');
-  }
-
   // 전역 바인딩
-  Object.assign(window,{switchTab,filterResidents,setFilterStatus,selectResident,toggleAddResidentModal,saveResidentInfo,openEditResidentModal,deleteResident,switchEvalSubtab,selectQuestionOption,switchCategorySubtab,saveCurrentEvaluation,updateOpinionText,switchStatsCategory,switchFacilityReport,switchQuestionsCategory,saveCustomQuestions,resetQuestionsToDefault,exportToExcel,exportBackupData,triggerBackupImport,importBackupData,clearAllData,generateDemoData,openResidentPanel,closeResidentPanel});
+  Object.assign(window,{switchTab,filterResidents,setFilterStatus,selectResident,toggleAddResidentModal,saveResidentInfo,openEditResidentModal,deleteResident,switchEvalSubtab,selectQuestionOption,switchCategorySubtab,saveCurrentEvaluation,updateOpinionText,switchStatsCategory,switchFacilityReport,switchQuestionsCategory,saveCustomQuestions,resetQuestionsToDefault,exportToExcel,exportBackupData,triggerBackupImport,importBackupData,clearAllData,openResidentPanel,closeResidentPanel});
   </script>
 </body>
 </html>
