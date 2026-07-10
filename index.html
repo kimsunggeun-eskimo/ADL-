@@ -116,11 +116,13 @@
       #bottom-nav, #resident-panel, #panel-overlay, header, button, .no-print, aside { display: none !important; }
       body { background: white !important; }
       #main-content { padding: 0 !important; }
-      #tab-evaluation { display: block !important; }
-      #eval-report-container { display: block !important; }
+      /* 현재 활성 탭만 인쇄 (평가기록 탭은 결과지 서브탭이 아니어도 결과지를 강제 노출) */
+      #tab-evaluation.active #eval-report-container { display: block !important; }
       #a4-report-paper { border: none !important; box-shadow: none !important; padding: 10mm !important; width: 100% !important; }
       table { border-collapse: collapse !important; width: 100% !important; }
       td, th { border: 1px solid #000 !important; padding: 4px !important; }
+      .glass-panel { background: #fff !important; box-shadow: none !important; backdrop-filter: none !important; border: 1px solid #ccc !important; }
+      .chart-wrapper { page-break-inside: avoid; }
     }
     /* 모달 스크롤 */
     #resident-modal .modal-body { max-height: 70vh; overflow-y: auto; }
@@ -527,11 +529,14 @@
     </section>
 
     <!-- ===== 3. 통계 탭 ===== -->
-    <section id="tab-statistics" class="tab-content space-y-4 animate-fade-in no-print">
+    <section id="tab-statistics" class="tab-content space-y-4 animate-fade-in">
       <div class="flex items-center justify-between">
         <h2 class="text-sm font-bold text-slate-900 flex items-center gap-1.5">
           <span class="text-sm">📈</span> 영역별 통계
         </h2>
+        <button onclick="window.print()" class="px-3 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl flex items-center gap-1.5">
+          <span class="text-xs">🖨️</span> 인쇄
+        </button>
       </div>
       <!-- 통계 카테고리 탭 -->
       <div class="cat-tab-row">
@@ -550,14 +555,19 @@
     </section>
 
     <!-- ===== 4. 보고서 탭 ===== -->
-    <section id="tab-reports" class="tab-content space-y-4 animate-fade-in no-print">
+    <section id="tab-reports" class="tab-content space-y-4 animate-fade-in">
       <div class="flex items-center justify-between">
         <h2 class="text-sm font-bold text-slate-900 flex items-center gap-1.5">
           <span class="text-sm">📄</span> 종합 보고서
         </h2>
-        <button onclick="exportToExcel()" class="px-3 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl flex items-center gap-1">
-          <span class="text-xs">📊</span> Excel
-        </button>
+        <div class="flex gap-2">
+          <button onclick="window.print()" class="px-3 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl flex items-center gap-1.5">
+            <span class="text-xs">🖨️</span> 인쇄
+          </button>
+          <button onclick="exportToExcel()" class="px-3 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl flex items-center gap-1">
+            <span class="text-xs">📊</span> Excel
+          </button>
+        </div>
       </div>
       <!-- 보고서 카테고리 탭 -->
       <div class="cat-tab-row">
