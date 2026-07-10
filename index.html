@@ -1166,6 +1166,17 @@
           <div class="text-xs font-semibold text-slate-800">${escapeHtml(opt.label)}</div>
         </label>`;
       });
+      // 기타(직접 입력) 옵션 - 문항관리에서 허용한 문항만
+      let etcHtml="";
+      if(q.allowEtc){
+        const isEtc=checked==='etc';
+        const etcVal=ev.etcText?.[q.id]||"";
+        etcHtml=`<label class="custom-radio ${isEtc?'active-option':''}" onclick="selectQuestionOption('${q.id}','etc',this)">
+          <input type="radio" name="q_${q.id}" value="etc" ${isEtc?'checked':''}>
+          <div class="text-xs font-semibold text-slate-800">기타 (직접 입력)</div>
+        </label>
+        <textarea id="etc_${q.id}" oninput="updateEtcText('${q.id}',this.value)" placeholder="기타 내용을 직접 입력하세요 (결과지/보고서에 반영됩니다)" rows="2" class="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-xs bg-white resize-none ${isEtc?'':'hidden'}">${escapeHtml(etcVal)}</textarea>`;
+      }
       div.innerHTML=`
         <div>
           <div class="flex items-center gap-2">
@@ -1174,7 +1185,7 @@
           </div>
           <p class="text-xs text-slate-400 mt-1 ml-7">${escapeHtml(q.description)}</p>
         </div>
-        <div class="space-y-2 ml-7">${optsHtml}</div>`;
+        <div class="space-y-2 ml-7">${optsHtml}${etcHtml}</div>`;
       qContainer.appendChild(div);
     });
   }
@@ -1187,7 +1198,18 @@
     element.parentElement.querySelectorAll(".custom-radio").forEach(l=>l.classList.remove("active-option"));
     element.classList.add("active-option");
     const radio=element.querySelector("input[type='radio']");if(radio)radio.checked=true;
+    // 기타 텍스트 입력창 표시/숨김
+    const etcBox=document.getElementById(`etc_${qId}`);
+    if(etcBox)etcBox.classList.toggle("hidden",value!=='etc');
     updateSubtabsProgress(resId);
+  }
+
+  function updateEtcText(qId,val){
+    const resId=state.currentResidentId;if(!resId)return;
+    if(!state.evaluations[resId])state.evaluations[resId]={scores:{},opinion:""};
+    if(!state.evaluations[resId].etcText)state.evaluations[resId].etcText={};
+    state.evaluations[resId].etcText[qId]=val;
+    delete state.evaluations[resId].aiDescriptions;
   }
 
   function updateSubtabsProgress(resId){
@@ -1247,8 +1269,7 @@
       const score=calculateCategoryScore(resId,cat);
       scoreEl.innerText=`(${score}/${max})`;
       if(!done){descEl.innerHTML=`<span class='text-red-400 italic text-[10px]'>미완료 문항이 있습니다.</span>`;return;}
-      const qs=state.questions.filter(q=>q.category===cat);
-      const sentences=qs.map(q=>{const opt=q.options.find(o=>o.value===ev.scores[q.id]);return opt?.template||"";}).filter(Boolean);
+      const sentences=buildCategorySentences(resId,cat);
       descEl.innerText=ev.aiDescriptions?.[cat]||sentences.join(" ");
     });
     const opEl=document.getElementById("rep-overall-clinical-opinion");
@@ -1292,9 +1313,7 @@
     try{
       const cats=['eating','snacking','mobility','water'];
       const results=await Promise.all(cats.map(async cat=>{
-        const qs=state.questions.filter(q=>q.category===cat);
-        const sentences=qs.map(q=>{const opt=q.options.find(o=>o.value===ev.scores[q.id]);return opt?.template||"";}).filter(Boolean);
-        const draft=sentences.join(' ');
+        const draft=buildCategorySentences(resId,cat).join(' ');
         const prompt=`당신은 작업치료사입니다. 아래는 '${labels[cat]}' 영역 ADL 평가 결과를 규칙 기반으로 이어붙인 초안 문장입니다. 사실관계(구체적 수행 수준, 필요한 지원 정도)는 절대 바꾸지 말고, 자연스러운 하나의 문단(2~3문장)으로 다듬어 주세요. 다른 설명 없이 다듬은 문단만 출력하세요.\n\n초안: ${draft}`;
         return [cat,await callGeminiAPI(prompt)];
       }));
@@ -1332,6 +1351,16 @@
       const v=ev.scores[q.id];
       return s+(v==='opt1'?3:v==='opt2'?2:v==='opt3'?1:0);
     },0);
+  }
+
+  // 결과지 서술 문장 조합 (기타 선택 시 직접 입력한 내용을 사용)
+  function buildCategorySentences(resId,cat){
+    const ev=state.evaluations[resId]||{scores:{}};
+    return state.questions.filter(q=>q.category===cat).map(q=>{
+      if(ev.scores[q.id]==='etc')return (ev.etcText?.[q.id]||"").trim();
+      const opt=q.options.find(o=>o.value===ev.scores[q.id]);
+      return opt?.template||"";
+    }).filter(Boolean);
   }
 
   function switchStatsCategory(catId){
@@ -1436,6 +1465,20 @@
       html+=`<p><strong>하루 목표량:</strong> 1000~1500ml 범위 <strong class="text-indigo-600">${getP('wat_06','opt3')}%</strong></p>`;
     }
     html+='</div>';
+    // 기타(직접 입력) 특이사항 모음
+    const etcItems=[];
+    state.residents.filter(r=>isEvaluationFinished(r.id)).forEach(r=>{
+      const ev=state.evaluations[r.id];
+      state.questions.filter(q=>q.category===cat).forEach(q=>{
+        if(ev.scores[q.id]==='etc'){
+          const txt=(ev.etcText?.[q.id]||"").trim();
+          if(txt)etcItems.push(`<li class="mb-1"><strong>${escapeHtml(r.name)}</strong> · ${escapeHtml(q.title)}: ${escapeHtml(txt)}</li>`);
+        }
+      });
+    });
+    if(etcItems.length){
+      html+=`<div class="mt-4 pt-3 border-t border-slate-200"><p class="font-bold text-xs text-slate-800 mb-2">📝 기타 특이사항 (${etcItems.length}건)</p><ul class="text-[11px] text-slate-600 leading-relaxed list-disc pl-4">${etcItems.join('')}</ul></div>`;
+    }
     container.innerHTML=html;
       }
 
@@ -1484,14 +1527,18 @@
       let opHtml="";
       q.options.forEach((opt,i)=>{
         opHtml+=`<div class="bg-slate-50 rounded-xl p-2.5 space-y-1.5">
-          <p class="text-[9px] font-bold text-slate-400">옵션 ${i+1}</p>
+          <div class="flex items-center justify-between">
+            <p class="text-[9px] font-bold text-slate-400">보기 ${i+1}</p>
+            <button onclick="deleteOption('${q.id}','${opt.value}')" class="text-rose-400 text-[10px] font-bold px-1.5 py-0.5 rounded hover:bg-rose-50">✕ 삭제</button>
+          </div>
           <input type="text" id="opt_lbl_${q.id}_${opt.value}" value="${escapeHtml(opt.label)}" placeholder="라벨명" class="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-xs bg-white">
           <input type="text" id="opt_tmp_${q.id}_${opt.value}" value="${escapeHtml(opt.template)}" placeholder="결과지 줄글 템플릿" class="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-xs bg-white">
         </div>`;
       });
       card.innerHTML=`
-        <div class="flex items-center gap-2">
+        <div class="flex items-center justify-between gap-2">
           <span class="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded font-bold">${escapeHtml(q.categoryLabel)} Q${q.number}</span>
+          <button onclick="deleteQuestion('${q.id}')" class="text-rose-600 border border-rose-200 text-[10px] font-bold px-2 py-1 rounded-lg">🗑️ 문항 삭제</button>
         </div>
         <div>
           <label class="text-[10px] font-bold text-slate-500 block mb-1">문항 질문</label>
@@ -1502,22 +1549,89 @@
           <input type="text" id="q_desc_${q.id}" value="${escapeHtml(q.description)}" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs bg-slate-50">
         </div>
         <div class="space-y-2">
-          <p class="text-[10px] font-bold text-slate-500">객관식 보기 및 템플릿</p>
+          <div class="flex items-center justify-between">
+            <p class="text-[10px] font-bold text-slate-500">객관식 보기 및 템플릿</p>
+            <button onclick="addOption('${q.id}')" class="text-indigo-600 text-[10px] font-bold px-2 py-1 rounded-lg border border-indigo-200">＋ 보기 추가</button>
+          </div>
           ${opHtml}
-        </div>`;
+        </div>
+        <label class="flex items-center gap-2 text-[11px] font-semibold text-slate-600 pt-1 border-t border-slate-100">
+          <input type="checkbox" id="q_etc_${q.id}" ${q.allowEtc?'checked':''} class="w-4 h-4 accent-indigo-600">
+          기타(직접 입력) 허용 — 평가 시 자유롭게 서술한 내용이 결과지·보고서에 반영됩니다
+        </label>`;
       container.appendChild(card);
     });
+    // 문항 추가 버튼
+    const addBtn=document.createElement("button");
+    addBtn.onclick=()=>addQuestion();
+    addBtn.className="w-full py-3 border-2 border-dashed border-indigo-300 text-indigo-600 text-xs font-bold rounded-2xl";
+    addBtn.innerText="＋ 새 문항 추가";
+    container.appendChild(addBtn);
   }
 
-  async function saveCustomQuestions(){
+  // DOM에 입력된 편집 내용을 저장하지 않고 state.questions에만 반영 (추가/삭제 전 편집 유실 방지)
+  function syncQuestionsFromDOM(){
     state.questions.forEach(q=>{
       const t=document.getElementById(`q_title_${q.id}`);const d=document.getElementById(`q_desc_${q.id}`);
       if(t&&d){q.title=t.value.trim();q.description=d.value.trim();}
+      const etc=document.getElementById(`q_etc_${q.id}`);
+      if(etc)q.allowEtc=etc.checked;
       q.options.forEach(opt=>{
         const l=document.getElementById(`opt_lbl_${q.id}_${opt.value}`);const tm=document.getElementById(`opt_tmp_${q.id}_${opt.value}`);
         if(l&&tm){opt.label=l.value.trim();opt.template=tm.value.trim();}
       });
     });
+  }
+
+  function addQuestion(){
+    const cat=state.questionsCategory;
+    const labels={eating:'식사',snacking:'간식',mobility:'이동',water:'물'};
+    syncQuestionsFromDOM();
+    const inCat=state.questions.filter(q=>q.category===cat);
+    const nextNum=inCat.reduce((m,q)=>Math.max(m,q.number||0),0)+1;
+    state.questions.push({
+      id:`custom_${Date.now()}`,
+      category:cat,categoryLabel:labels[cat]||cat,number:nextNum,
+      title:"새 문항",description:"설명을 입력하세요",
+      allowEtc:true,
+      options:[
+        {value:"opt1",label:"보기 1",template:""},
+        {value:"opt2",label:"보기 2",template:""}
+      ]
+    });
+    renderQuestionsConfig();
+  }
+
+  function deleteQuestion(qId){
+    const q=state.questions.find(x=>x.id===qId);if(!q)return;
+    if(!confirm(`'${q.title}' 문항을 삭제하시겠습니까? 저장 시 실제로 반영됩니다.`))return;
+    syncQuestionsFromDOM();
+    state.questions=state.questions.filter(x=>x.id!==qId);
+    // 남은 문항 번호 재정렬
+    const inCat=state.questions.filter(x=>x.category===q.category);
+    inCat.forEach((x,i)=>{x.number=i+1;});
+    renderQuestionsConfig();
+  }
+
+  function addOption(qId){
+    const q=state.questions.find(x=>x.id===qId);if(!q)return;
+    syncQuestionsFromDOM();
+    const nums=q.options.map(o=>parseInt((o.value.match(/opt(\d+)/)||[])[1]||0,10));
+    const next=(nums.length?Math.max(...nums):0)+1;
+    q.options.push({value:`opt${next}`,label:`보기 ${q.options.length+1}`,template:""});
+    renderQuestionsConfig();
+  }
+
+  function deleteOption(qId,optValue){
+    const q=state.questions.find(x=>x.id===qId);if(!q)return;
+    if(q.options.length<=1){alert("보기는 최소 1개 이상이어야 합니다.");return;}
+    syncQuestionsFromDOM();
+    q.options=q.options.filter(o=>o.value!==optValue);
+    renderQuestionsConfig();
+  }
+
+  async function saveCustomQuestions(){
+    syncQuestionsFromDOM();
     // 로컬 저장
     window.QuestionsManager.saveQuestions(state.questions);
     // Firebase 동기화 (다른 기기에도 자동 반영)
@@ -1606,7 +1720,7 @@
   }
 
   // 전역 바인딩
-  Object.assign(window,{switchTab,filterResidents,setFilterStatus,selectResident,toggleAddResidentModal,saveResidentInfo,openEditResidentModal,deleteResident,switchEvalSubtab,selectQuestionOption,switchCategorySubtab,saveCurrentEvaluation,updateOpinionText,switchStatsCategory,switchFacilityReport,switchQuestionsCategory,saveCustomQuestions,resetQuestionsToDefault,exportToExcel,exportBackupData,triggerBackupImport,importBackupData,clearAllData,openResidentPanel,closeResidentPanel,regenerateOpinionWithAI,regenerateReportDescriptionsWithAI,generateStatisticsAISummary,generateFacilityReportAISummary});
+  Object.assign(window,{switchTab,filterResidents,setFilterStatus,selectResident,toggleAddResidentModal,saveResidentInfo,openEditResidentModal,deleteResident,switchEvalSubtab,selectQuestionOption,switchCategorySubtab,saveCurrentEvaluation,updateOpinionText,switchStatsCategory,switchFacilityReport,switchQuestionsCategory,saveCustomQuestions,resetQuestionsToDefault,exportToExcel,exportBackupData,triggerBackupImport,importBackupData,clearAllData,openResidentPanel,closeResidentPanel,regenerateOpinionWithAI,regenerateReportDescriptionsWithAI,generateStatisticsAISummary,generateFacilityReportAISummary,updateEtcText,addQuestion,deleteQuestion,addOption,deleteOption});
   </script>
 </body>
 </html>
