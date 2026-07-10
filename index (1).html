@@ -1,0 +1,1455 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>ADL 지원강도 평가</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Noto Sans KR', 'sans-serif'] }
+        }
+      }
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #f8fafc;
+      --bg-card: rgba(255,255,255,0.92);
+      --border-color: rgba(226,232,240,0.8);
+      --shadow-glass: 0 4px 16px 0 rgba(31,38,135,0.07);
+    }
+    * { -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: 'Noto Sans KR', sans-serif;
+      background-color: var(--bg-primary);
+      /* 모바일 하단 safe area 대응 */
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    .glass-panel {
+      background: var(--bg-card);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid var(--border-color);
+      box-shadow: var(--shadow-glass);
+    }
+    /* 커스텀 라디오 */
+    .custom-radio {
+      display: flex;
+      align-items: flex-start;
+      padding: 0.625rem 0.75rem;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 0.75rem;
+      cursor: pointer;
+      transition: all 0.15s;
+      min-height: 44px; /* 터치 타겟 최소 크기 */
+    }
+    .custom-radio:hover, .custom-radio:active { border-color: #cbd5e1; background-color: #f8fafc; }
+    .custom-radio input[type="radio"] {
+      margin-top: 0.15rem;
+      margin-right: 0.5rem;
+      width: 1rem;
+      height: 1rem;
+      accent-color: rgb(79,70,229);
+      flex-shrink: 0;
+    }
+    .custom-radio.active-option {
+      border-color: rgb(79,70,229);
+      background-color: rgba(99,102,241,0.06);
+    }
+    /* 하단 네비게이션 바 */
+    #bottom-nav {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 40;
+      background: rgba(255,255,255,0.96);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-top: 1px solid #e2e8f0;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    /* 평가 탭 모바일: 거주인 목록 패널 */
+    #resident-panel {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      background: white;
+      transform: translateX(-100%);
+      transition: transform 0.28s cubic-bezier(0.4,0,0.2,1);
+      overflow-y: auto;
+    }
+    #resident-panel.open { transform: translateX(0); }
+    /* 오버레이 */
+    #panel-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 29;
+      background: rgba(0,0,0,0.4);
+    }
+    #panel-overlay.show { display: block; }
+    /* 카테고리 탭 스크롤 */
+    .cat-tab-row { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+    .cat-tab-row::-webkit-scrollbar { display: none; }
+    /* 문항 영역 */
+    #evaluation-questions-list { padding-bottom: 100px; }
+    /* A4 결과지 - 모바일에선 width 100% */
+    #a4-report-paper {
+      width: 100% !important;
+      min-height: auto !important;
+      padding: 1rem !important;
+      box-shadow: none !important;
+      border: 1px solid #ccc !important;
+    }
+    /* 애니메이션 */
+    @keyframes fadeInUp { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+    .animate-fade-in { animation: fadeInUp 0.25s ease-out forwards; }
+    /* 인쇄 스타일 */
+    @media print {
+      #bottom-nav, #resident-panel, #panel-overlay, header, button, .no-print, aside { display: none !important; }
+      body { background: white !important; }
+      #main-content { padding: 0 !important; }
+      #tab-evaluation { display: block !important; }
+      #eval-report-container { display: block !important; }
+      #a4-report-paper { border: none !important; box-shadow: none !important; padding: 10mm !important; width: 100% !important; }
+      table { border-collapse: collapse !important; width: 100% !important; }
+      td, th { border: 1px solid #000 !important; padding: 4px !important; }
+    }
+    /* 모달 스크롤 */
+    #resident-modal .modal-body { max-height: 70vh; overflow-y: auto; }
+    /* 버튼 최소 터치 타겟 */
+    button { min-height: 40px; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    #tab-evaluation.active { display: flex; flex-direction: column; }
+    /* 차트 */
+    .chart-wrapper { position: relative; width: 100%; height: 220px; }
+  </style>
+  <!-- Firebase SDK -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getFirestore, doc, setDoc, getDoc, collection, getDocs, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+    import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBvpgIKzhKe583st6B6cpf4rBikQGsWKQA",
+      authDomain: "adl--evaluation.firebaseapp.com",
+      projectId: "adl--evaluation",
+      storageBucket: "adl--evaluation.firebasestorage.app",
+      messagingSenderId: "105959386929",
+      appId: "1:105959386929:web:cdd00b25b3ea996dea8a10"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+
+    // 로그인 화면 <-> 앱 화면 전환 처리
+    const loginScreenEl = () => document.getElementById('login-screen');
+    const appContentEl = () => document.getElementById('app-content');
+
+    onAuthStateChanged(auth, (user) => {
+      if (user) {
+        if (loginScreenEl()) loginScreenEl().style.display = 'none';
+        if (appContentEl()) appContentEl().style.display = '';
+        window.dispatchEvent(new Event('auth-ready'));
+      } else {
+        if (loginScreenEl()) loginScreenEl().style.display = 'flex';
+        if (appContentEl()) appContentEl().style.display = 'none';
+      }
+    });
+
+    window._fbAuth = {
+      async login(email, password) {
+        await signInWithEmailAndPassword(auth, email, password);
+      },
+      async logout() {
+        await signOut(auth);
+      }
+    };
+
+    // Firebase 함수들을 전역으로 노출
+    window._fb = {
+      // 거주인 저장
+      async saveResident(resident) {
+        await setDoc(doc(db, "residents", resident.id), resident);
+      },
+      // 거주인 삭제
+      async deleteResident(id) {
+        await deleteDoc(doc(db, "residents", id));
+        await deleteDoc(doc(db, "evaluations", id));
+      },
+      // 평가 저장
+      async saveEvaluation(residentId, evalData) {
+        await setDoc(doc(db, "evaluations", residentId), evalData);
+      },
+      // 문항 저장
+      async saveQuestions(questions) {
+        await setDoc(doc(db, "settings", "questions"), { data: questions, updatedAt: new Date().toISOString() });
+      },
+      // 전체 데이터 로드 (문항 포함)
+      async loadAll() {
+        const [resSnap, evalSnap, qSnap] = await Promise.all([
+          getDocs(collection(db, "residents")),
+          getDocs(collection(db, "evaluations")),
+          getDoc(doc(db, "settings", "questions"))
+        ]);
+        const residents = [];
+        resSnap.forEach(d => residents.push(d.data()));
+        const evaluations = {};
+        evalSnap.forEach(d => { evaluations[d.id] = d.data(); });
+        const questions = qSnap.exists() ? qSnap.data().data : null;
+        return { residents, evaluations, questions };
+      },
+      // 실시간 자동 동기화 구독 (거주인 + 평가 + 문항)
+      subscribeAll(onResidents, onEvaluations, onQuestions) {
+        const unsubR = onSnapshot(collection(db, "residents"), snap => {
+          const residents = [];
+          snap.forEach(d => residents.push(d.data()));
+          onResidents(residents);
+        });
+        const unsubE = onSnapshot(collection(db, "evaluations"), snap => {
+          const evals = {};
+          snap.forEach(d => { evals[d.id] = d.data(); });
+          onEvaluations(evals);
+        });
+        const unsubQ = onSnapshot(doc(db, "settings", "questions"), snap => {
+          if(snap.exists()) onQuestions(snap.data().data);
+        });
+        return () => { unsubR(); unsubE(); unsubQ(); };
+      }
+    };
+
+    console.log("Firebase 초기화 완료 ✅");
+    window.dispatchEvent(new Event('firebase-ready'));
+  </script>
+</head>
+<body class="min-h-screen text-slate-800 pb-16">
+
+  <!-- 로그인 화면 -->
+  <div id="login-screen" style="display:flex;" class="fixed inset-0 z-[9999] bg-slate-50 items-center justify-center p-6">
+    <div class="glass-panel rounded-2xl p-6 w-full max-w-sm space-y-4">
+      <div class="text-center space-y-1">
+        <div class="text-3xl">🔒</div>
+        <h1 class="text-sm font-bold text-slate-900">ADL 지원강도 평가</h1>
+        <p class="text-[11px] text-slate-400">로그인 후 이용해주세요</p>
+      </div>
+      <div class="space-y-2">
+        <input type="email" id="login-email" placeholder="이메일" autocomplete="username" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm">
+        <input type="password" id="login-password" placeholder="비밀번호" autocomplete="current-password" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm">
+      </div>
+      <p id="login-error" class="text-[11px] text-rose-500 hidden">이메일 또는 비밀번호가 올바르지 않습니다.</p>
+      <button id="login-submit-btn" onclick="handleLoginSubmit()" class="w-full py-2.5 bg-indigo-600 text-white text-sm font-bold rounded-xl shadow">로그인</button>
+      <script>
+        document.getElementById('login-password').addEventListener('keydown', (e)=>{ if(e.key==='Enter') handleLoginSubmit(); });
+        document.getElementById('login-email').addEventListener('keydown', (e)=>{ if(e.key==='Enter') document.getElementById('login-password').focus(); });
+      </script>
+    </div>
+  </div>
+
+  <div id="app-content" style="display:none;">
+
+  <!-- 헤더 (로고만) -->
+  <header class="bg-white/90 backdrop-blur-md border-b border-slate-200 sticky top-0 z-20 no-print">
+    <div class="px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <div class="bg-indigo-600 text-white p-1.5 rounded-xl shadow shadow-indigo-200 flex items-center justify-center">
+          <span class="text-base">📊</span>
+        </div>
+        <div>
+          <h1 class="text-sm font-bold text-slate-900 leading-tight">ADL 지원강도 평가</h1>
+          <p class="text-[10px] text-slate-400">중증장애인 거주시설 작업치료 <span id="sync-status" class="text-emerald-500">● 연결중...</span></p>
+        </div>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <!-- 평가탭일 때만 보이는 거주인 목록 열기 버튼 -->
+        <button id="open-resident-panel-btn" onclick="openResidentPanel()" class="hidden p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+          <span class="text-base">👥</span>
+        </button>
+        <button onclick="handleLogoutClick()" class="p-2 bg-slate-50 text-slate-500 rounded-xl no-print" title="로그아웃">
+          <span class="text-base">🔓</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 메인 콘텐츠 -->
+  <main id="main-content" class="px-3 pt-3 pb-4 flex flex-col">
+
+    <!-- ===== 1. 대시보드 탭 ===== -->
+    <section id="tab-dashboard" class="tab-content active space-y-4 animate-fade-in">
+      <!-- 통계 카드 2x2 -->
+      <div class="grid grid-cols-2 gap-3">
+        <div class="glass-panel rounded-2xl p-4 flex items-center gap-3">
+          <div class="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl flex-shrink-0">
+            <span class="text-base">👥</span>
+          </div>
+          <div>
+            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide">등록</p>
+            <h3 id="stat-total-residents" class="text-xl font-bold text-slate-900">0</h3>
+          </div>
+        </div>
+        <div class="glass-panel rounded-2xl p-4 flex items-center gap-3">
+          <div class="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl flex-shrink-0">
+            <span class="text-base">✅</span>
+          </div>
+          <div>
+            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide">완료</p>
+            <h3 id="stat-eval-completed" class="text-xl font-bold text-slate-900">0</h3>
+          </div>
+        </div>
+        <div class="glass-panel rounded-2xl p-4 flex items-center gap-3">
+          <div class="p-2.5 bg-amber-50 text-amber-600 rounded-xl flex-shrink-0">
+            <span class="text-base">❓</span>
+          </div>
+          <div>
+            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide">대기</p>
+            <h3 id="stat-eval-pending" class="text-xl font-bold text-slate-900">0</h3>
+          </div>
+        </div>
+        <div class="glass-panel rounded-2xl p-4 flex items-center gap-3">
+          <div class="p-2.5 bg-sky-50 text-sky-600 rounded-xl flex-shrink-0">
+            <span class="text-base">💙</span>
+          </div>
+          <div>
+            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wide">양호율</p>
+            <h3 id="stat-health-good" class="text-xl font-bold text-slate-900">0%</h3>
+          </div>
+        </div>
+      </div>
+
+      <!-- 소개 패널 -->
+      <div class="glass-panel rounded-2xl p-4 space-y-3">
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-600">
+          <span class="text-xs">✨</span> 작업치료사님 환영합니다
+        </span>
+        <p class="text-xs text-slate-500 leading-relaxed">
+          식사·간식·이동·물 4개 영역, 38개 문항으로 ADL 수행도와 지원 강도를 평가합니다. 답변 조합으로 임상 서술형 결과지와 통계가 자동 작성됩니다.
+        </p>
+        <div class="flex flex-col gap-2 pt-2 border-t border-slate-100">
+          <button onclick="generateDemoData()" class="w-full py-2.5 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow shadow-indigo-200 flex items-center justify-center gap-1.5">
+            <span class="text-xs">📝</span> 54명 가상 데모 데이터 주입
+          </button>
+          <button onclick="switchTab('evaluation')" class="w-full py-2.5 bg-slate-900 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5">
+            <span class="text-xs">➕</span> 개별 평가 바로가기
+          </button>
+        </div>
+      </div>
+
+      <!-- DB 관리 -->
+      <div class="glass-panel rounded-2xl p-4 space-y-2">
+        <h3 class="text-xs font-bold text-slate-900 flex items-center gap-1.5 mb-2">
+          <span class="text-sm">💾</span> 데이터 백업 및 관리
+        </h3>
+        <button onclick="exportBackupData()" class="w-full py-2.5 bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5">
+          <span class="text-xs">⬇️</span> 백업 내보내기 (.json)
+        </button>
+        <button onclick="triggerBackupImport()" class="w-full py-2.5 bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5">
+          <span class="text-xs">⬆️</span> 백업 가져오기 / 복원
+        </button>
+        <input type="file" id="backup-file-input" class="hidden" accept=".json" onchange="importBackupData(event)">
+        <button onclick="clearAllData()" class="w-full py-2.5 bg-rose-50 text-rose-600 text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5">
+          <span class="text-xs">🗑️</span> 전체 데이터 영구 삭제
+        </button>
+      </div>
+    </section>
+
+    <!-- ===== 2. 평가기록 탭 ===== -->
+    <section id="tab-evaluation" class="tab-content space-y-3 animate-fade-in">
+      <!-- 빈 상태 -->
+      <div id="evaluation-empty-state" class="glass-panel rounded-2xl flex flex-col items-center justify-center p-10 text-center border border-slate-200/60 mt-4">
+        <div class="bg-indigo-50 p-4 rounded-full text-indigo-600 mb-3">
+          <span class="text-xl">👤</span>
+        </div>
+        <h3 class="text-sm font-bold text-slate-800 mb-1">거주인을 선택해 주세요</h3>
+        <p class="text-xs text-slate-400 mb-4">상단 <span class="font-bold text-indigo-600">👥 버튼</span>을 눌러 거주인 목록을 여세요.</p>
+        <button onclick="openResidentPanel()" class="px-5 py-2.5 bg-indigo-600 text-white text-xs font-bold rounded-xl">
+          거주인 목록 열기
+        </button>
+      </div>
+
+      <!-- 평가 콘텐츠 -->
+      <div id="evaluation-content-panel" class="hidden space-y-3">
+        <!-- 선택된 거주인 정보 바 -->
+        <div class="glass-panel rounded-2xl p-3 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <div class="w-8 h-8 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center font-bold text-sm" id="res-avatar">-</div>
+            <div>
+              <p id="selected-res-name" class="text-sm font-bold text-slate-900">-</p>
+              <p id="selected-res-info" class="text-[10px] text-slate-400">-</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <button onclick="openEditResidentModal()" class="p-1.5 bg-slate-100 text-slate-600 rounded-lg">
+              <span class="text-sm">✏️</span>
+            </button>
+            <button onclick="deleteResident()" class="p-1.5 bg-rose-50 text-rose-500 rounded-lg">
+              <span class="text-sm">🗑️</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 작성/결과지 서브탭 -->
+        <div class="flex bg-slate-100 p-0.5 rounded-xl no-print">
+          <button id="eval-subtab-write-btn" onclick="switchEvalSubtab('write')" class="flex-1 py-2 text-xs font-bold rounded-xl text-indigo-600 bg-white shadow-sm transition text-center">
+            ✏️ 평가 작성
+          </button>
+          <button id="eval-subtab-report-btn" onclick="switchEvalSubtab('report')" class="flex-1 py-2 text-xs font-bold rounded-xl text-slate-500 transition text-center">
+            📄 결과지 (1p)
+          </button>
+        </div>
+
+        <!-- 평가 작성 영역 -->
+        <div id="eval-write-container" class="glass-panel rounded-2xl overflow-hidden border border-slate-200/60 no-print">
+          <!-- 카테고리 탭 (스크롤 가능) -->
+          <div class="cat-tab-row border-b border-slate-200 bg-slate-50/50">
+            <div class="flex min-w-max">
+              <button id="subtab-eating" onclick="switchCategorySubtab('eating')" class="cat-tab-btn px-4 py-3 text-xs font-bold border-b-2 border-indigo-600 text-indigo-600 flex items-center gap-1.5 whitespace-nowrap transition">
+                🍚 식사 <span id="prog-eating" class="bg-indigo-100 text-indigo-700 text-[9px] px-1.5 rounded-full font-mono">0/10</span>
+              </button>
+              <button id="subtab-snacking" onclick="switchCategorySubtab('snacking')" class="cat-tab-btn px-4 py-3 text-xs font-bold border-b-2 border-transparent text-slate-500 flex items-center gap-1.5 whitespace-nowrap transition">
+                🍪 간식 <span id="prog-snacking" class="bg-slate-200 text-slate-700 text-[9px] px-1.5 rounded-full font-mono">0/10</span>
+              </button>
+              <button id="subtab-mobility" onclick="switchCategorySubtab('mobility')" class="cat-tab-btn px-4 py-3 text-xs font-bold border-b-2 border-transparent text-slate-500 flex items-center gap-1.5 whitespace-nowrap transition">
+                🦽 이동 <span id="prog-mobility" class="bg-slate-200 text-slate-700 text-[9px] px-1.5 rounded-full font-mono">0/10</span>
+              </button>
+              <button id="subtab-water" onclick="switchCategorySubtab('water')" class="cat-tab-btn px-4 py-3 text-xs font-bold border-b-2 border-transparent text-slate-500 flex items-center gap-1.5 whitespace-nowrap transition">
+                💧 물 <span id="prog-water" class="bg-slate-200 text-slate-700 text-[9px] px-1.5 rounded-full font-mono">0/8</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 문항 목록 -->
+          <div id="evaluation-questions-list" class="p-4 space-y-5"></div>
+
+          <!-- 저장 버튼 -->
+          <div class="p-3 border-t border-slate-200/60 bg-slate-50/50 flex justify-between items-center">
+            <span class="text-[10px] text-slate-400">전 문항 완료 시 결과지 생성</span>
+            <button onclick="saveCurrentEvaluation()" class="px-4 py-2.5 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow flex items-center gap-1.5">
+              <span class="text-xs">💾</span> 저장 및 완료
+            </button>
+          </div>
+        </div>
+
+        <!-- 결과지 영역 -->
+        <div id="eval-report-container" class="hidden space-y-3">
+          <div class="flex items-center justify-between no-print">
+            <p class="text-[11px] text-slate-400">
+              <span class="inline-block w-2 h-2 bg-emerald-500 rounded-full mr-1"></span>
+              종합소견을 탭하여 수정할 수 있습니다.
+            </p>
+            <button onclick="window.print()" class="px-3 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl flex items-center gap-1.5">
+              <span class="text-xs">🖨️</span> 인쇄
+            </button>
+          </div>
+          <div id="a4-report-paper" class="bg-white rounded-sm text-black leading-relaxed text-xs">
+            <div class="space-y-4">
+              <div class="text-center relative pb-2 border-b border-black">
+                <h2 class="text-base font-black tracking-widest">평 가 결 과 지</h2>
+                <div class="text-[10px] font-bold mt-1">
+                  평가일: <span id="rep-eval-date" class="underline font-mono">-</span>
+                </div>
+              </div>
+              <table class="w-full text-center border-collapse border border-black text-[10px]">
+                <tbody>
+                  <tr class="h-8">
+                    <td class="w-1/5 bg-slate-100 border border-black font-bold">성명</td>
+                    <td id="rep-name" class="border border-black font-bold">-</td>
+                    <td class="w-1/5 bg-slate-100 border border-black font-bold">성별</td>
+                    <td id="rep-gender" class="border border-black">-</td>
+                  </tr>
+                  <tr class="h-8">
+                    <td class="bg-slate-100 border border-black font-bold">생년월일</td>
+                    <td id="rep-birthdate" class="border border-black font-mono">-</td>
+                    <td class="bg-slate-100 border border-black font-bold">장애유형</td>
+                    <td id="rep-diagnosis" class="border border-black font-bold">-</td>
+                  </tr>
+                  <tr>
+                    <td class="bg-slate-100 border border-black font-bold p-1">건강상태</td>
+                    <td colspan="3" id="rep-health" class="border border-black text-left px-2 py-1">-</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p class="font-bold text-xs border-l-4 border-black pl-2">■ ADL (식사·간식·이동·물)</p>
+              <table class="w-full border-collapse border border-black text-[10px]">
+                <thead>
+                  <tr class="bg-slate-100">
+                    <th class="w-[18%] border border-black p-1 font-bold">영역</th>
+                    <th class="border border-black p-1 font-bold">평가 내용</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="border border-black text-center p-2 font-bold bg-slate-50">식사<br><span id="rep-score-eating" class="text-[9px] text-indigo-700 font-mono">(0/30)</span></td>
+                    <td id="rep-desc-eating" class="border border-black p-2 text-left leading-relaxed">대기...</td>
+                  </tr>
+                  <tr>
+                    <td class="border border-black text-center p-2 font-bold bg-slate-50">간식<br><span id="rep-score-snacking" class="text-[9px] text-indigo-700 font-mono">(0/30)</span></td>
+                    <td id="rep-desc-snacking" class="border border-black p-2 text-left leading-relaxed">대기...</td>
+                  </tr>
+                  <tr>
+                    <td class="border border-black text-center p-2 font-bold bg-slate-50">이동<br><span id="rep-score-mobility" class="text-[9px] text-indigo-700 font-mono">(0/30)</span></td>
+                    <td id="rep-desc-mobility" class="border border-black p-2 text-left leading-relaxed">대기...</td>
+                  </tr>
+                  <tr>
+                    <td class="border border-black text-center p-2 font-bold bg-slate-50">물<br><span id="rep-score-water" class="text-[9px] text-indigo-700 font-mono">(0/24)</span></td>
+                    <td id="rep-desc-water" class="border border-black p-2 text-left leading-relaxed">대기...</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div>
+                <p class="font-bold text-xs border-l-4 border-black pl-2 mb-2">■ 종합 임상 소견</p>
+                <div id="rep-overall-clinical-opinion" class="border border-black p-3 bg-slate-50 min-h-[80px] text-left leading-relaxed text-[10px]">대기 중...</div>
+              </div>
+            </div>
+            <div class="border-t border-black pt-3 mt-6 flex justify-between text-[9px] font-bold">
+              <span>ADL x SIS Ver. 2.0</span>
+              <span>중증장애인 거주시설 쉼터 (인)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 3. 통계 탭 ===== -->
+    <section id="tab-statistics" class="tab-content space-y-4 animate-fade-in no-print">
+      <div class="flex items-center justify-between">
+        <h2 class="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+          <span class="text-sm">📈</span> 영역별 통계
+        </h2>
+      </div>
+      <!-- 통계 카테고리 탭 -->
+      <div class="cat-tab-row">
+        <div class="flex bg-slate-100 p-0.5 rounded-xl gap-0.5 min-w-max">
+          <button id="stats-nav-eating" onclick="switchStatsCategory('eating')" class="stats-tab-btn px-4 py-2 text-xs font-bold rounded-xl text-indigo-600 bg-white shadow-sm">🍚 식사</button>
+          <button id="stats-nav-snacking" onclick="switchStatsCategory('snacking')" class="stats-tab-btn px-4 py-2 text-xs font-bold rounded-xl text-slate-600">🍪 간식</button>
+          <button id="stats-nav-mobility" onclick="switchStatsCategory('mobility')" class="stats-tab-btn px-4 py-2 text-xs font-bold rounded-xl text-slate-600">🦽 이동</button>
+          <button id="stats-nav-water" onclick="switchStatsCategory('water')" class="stats-tab-btn px-4 py-2 text-xs font-bold rounded-xl text-slate-600">💧 물</button>
+        </div>
+      </div>
+      <div id="stats-empty-state" class="glass-panel rounded-2xl p-8 text-center hidden">
+        <p class="text-sm font-bold text-slate-700">평가 완료 데이터 없음</p>
+        <p class="text-xs text-slate-400 mt-1">1명 이상 38문항 완료 시 차트 생성</p>
+      </div>
+      <div id="stats-charts-grid" class="space-y-4"></div>
+    </section>
+
+    <!-- ===== 4. 보고서 탭 ===== -->
+    <section id="tab-reports" class="tab-content space-y-4 animate-fade-in no-print">
+      <div class="flex items-center justify-between">
+        <h2 class="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+          <span class="text-sm">📄</span> 종합 보고서
+        </h2>
+        <button onclick="exportToExcel()" class="px-3 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl flex items-center gap-1">
+          <span class="text-xs">📊</span> Excel
+        </button>
+      </div>
+      <!-- 보고서 카테고리 탭 -->
+      <div class="cat-tab-row">
+        <div class="flex bg-slate-100 p-0.5 rounded-xl gap-0.5 min-w-max">
+          <button id="f-rep-nav-eating" onclick="switchFacilityReport('eating')" class="f-rep-tab-btn px-3 py-2 text-xs font-bold rounded-xl text-indigo-600 bg-white shadow-sm whitespace-nowrap">식사</button>
+          <button id="f-rep-nav-snacking" onclick="switchFacilityReport('snacking')" class="f-rep-tab-btn px-3 py-2 text-xs font-bold rounded-xl text-slate-600 whitespace-nowrap">간식</button>
+          <button id="f-rep-nav-mobility" onclick="switchFacilityReport('mobility')" class="f-rep-tab-btn px-3 py-2 text-xs font-bold rounded-xl text-slate-600 whitespace-nowrap">이동</button>
+          <button id="f-rep-nav-water" onclick="switchFacilityReport('water')" class="f-rep-tab-btn px-3 py-2 text-xs font-bold rounded-xl text-slate-600 whitespace-nowrap">물(수분)</button>
+        </div>
+      </div>
+      <div class="glass-panel rounded-2xl p-4 border border-slate-200/60 bg-white">
+        <div id="facility-report-document"></div>
+      </div>
+    </section>
+
+    <!-- ===== 5. 문항관리 탭 ===== -->
+    <section id="tab-questions" class="tab-content space-y-4 animate-fade-in no-print">
+      <div class="flex items-center justify-between">
+        <h2 class="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+          <span class="text-sm">⚙️</span> 문항 관리
+        </h2>
+        <div class="flex gap-2">
+          <button onclick="resetQuestionsToDefault()" class="px-3 py-2 text-xs text-rose-600 border border-rose-200 font-bold rounded-xl">초기화</button>
+          <button onclick="saveCustomQuestions()" class="px-3 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl flex items-center gap-1">
+            <span class="text-xs">💾</span> 저장
+          </button>
+        </div>
+      </div>
+      <!-- 문항 카테고리 탭 -->
+      <div class="cat-tab-row">
+        <div class="flex bg-slate-100 p-0.5 rounded-xl gap-0.5 min-w-max">
+          <button id="q-nav-eating" onclick="switchQuestionsCategory('eating')" class="q-tab-btn px-3 py-2 text-xs font-bold rounded-xl text-indigo-600 bg-white shadow-sm whitespace-nowrap">🍚 식사</button>
+          <button id="q-nav-snacking" onclick="switchQuestionsCategory('snacking')" class="q-tab-btn px-3 py-2 text-xs font-bold rounded-xl text-slate-600 whitespace-nowrap">🍪 간식</button>
+          <button id="q-nav-mobility" onclick="switchQuestionsCategory('mobility')" class="q-tab-btn px-3 py-2 text-xs font-bold rounded-xl text-slate-600 whitespace-nowrap">🦽 이동</button>
+          <button id="q-nav-water" onclick="switchQuestionsCategory('water')" class="q-tab-btn px-3 py-2 text-xs font-bold rounded-xl text-slate-600 whitespace-nowrap">💧 물</button>
+        </div>
+      </div>
+      <div id="questions-config-list" class="space-y-3 pb-20"></div>
+    </section>
+
+  </main>
+
+  <!-- 하단 네비게이션 -->
+  <nav id="bottom-nav" class="no-print">
+    <div class="flex">
+      <button id="nav-dashboard" onclick="switchTab('dashboard')" class="bottom-nav-btn flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-indigo-600">
+        <span class="text-base">🏠</span>
+        <span class="text-[9px] font-bold">대시보드</span>
+      </button>
+      <button id="nav-evaluation" onclick="switchTab('evaluation')" class="bottom-nav-btn flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-slate-400">
+        <span class="text-base">📋</span>
+        <span class="text-[9px] font-bold">평가기록</span>
+      </button>
+      <button id="nav-statistics" onclick="switchTab('statistics')" class="bottom-nav-btn flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-slate-400">
+        <span class="text-base">📈</span>
+        <span class="text-[9px] font-bold">통계</span>
+      </button>
+      <button id="nav-reports" onclick="switchTab('reports')" class="bottom-nav-btn flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-slate-400">
+        <span class="text-base">📄</span>
+        <span class="text-[9px] font-bold">보고서</span>
+      </button>
+      <button id="nav-questions" onclick="switchTab('questions')" class="bottom-nav-btn flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-slate-400">
+        <span class="text-base">⚙️</span>
+        <span class="text-[9px] font-bold">문항관리</span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- 거주인 목록 사이드 패널 (슬라이드) -->
+  <div id="panel-overlay" onclick="closeResidentPanel()"></div>
+  <div id="resident-panel">
+    <div class="sticky top-0 bg-white border-b border-slate-200 p-3 flex items-center justify-between z-10">
+      <h3 class="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+        <span class="text-sm">👥</span>
+        거주인 명단 (<span id="total-badge" class="text-indigo-600 font-mono">0</span>)
+      </h3>
+      <div class="flex items-center gap-2">
+        <button onclick="toggleAddResidentModal(true)" class="flex items-center gap-1 px-2.5 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-bold">
+          <span class="text-xs">➕</span> 등록
+        </button>
+        <button onclick="closeResidentPanel()" class="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg">
+          <span class="text-base">✕</span>
+        </button>
+      </div>
+    </div>
+    <!-- 검색 -->
+    <div class="p-3 border-b border-slate-100">
+      <div class="relative">
+        <span class="absolute inset-y-0 left-3 flex items-center text-slate-400">
+          <span class="text-xs">🔍</span>
+        </span>
+        <input type="text" id="resident-search-input" oninput="filterResidents()" placeholder="성명, 생활실, 장애명..." class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-4 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20">
+      </div>
+    </div>
+    <!-- 필터 -->
+    <div class="px-3 py-2 border-b border-slate-100">
+      <div class="grid grid-cols-3 bg-slate-100 p-0.5 rounded-lg text-[10px] font-bold text-center">
+        <button id="filter-btn-all" onclick="setFilterStatus('all')" class="py-1.5 rounded bg-white text-indigo-600 shadow-sm">전체</button>
+        <button id="filter-btn-done" onclick="setFilterStatus('done')" class="py-1.5 rounded text-slate-600">완료</button>
+        <button id="filter-btn-pending" onclick="setFilterStatus('pending')" class="py-1.5 rounded text-slate-600">대기</button>
+      </div>
+    </div>
+    <!-- 목록 -->
+    <div id="resident-list-container" class="divide-y divide-slate-100 pb-20"></div>
+  </div>
+
+  <!-- 거주인 등록/수정 모달 -->
+  <div id="resident-modal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm border border-slate-100 flex flex-col max-h-[90vh]">
+      <div class="flex justify-between items-center border-b border-slate-100 p-4 flex-shrink-0">
+        <h3 id="res-modal-title" class="text-sm font-bold text-slate-900">새 거주인 등록</h3>
+        <button onclick="toggleAddResidentModal(false)" class="p-1 text-slate-400 rounded-lg">
+          <span class="text-base">✕</span>
+        </button>
+      </div>
+      <div class="modal-body p-4 space-y-3.5 text-xs flex-1 overflow-y-auto">
+        <input type="hidden" id="res-edit-id">
+        <div>
+          <label class="block font-bold text-slate-700 mb-1">성명 <span class="text-rose-500">*</span></label>
+          <input type="text" id="res-name" placeholder="성명 입력" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 text-sm">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">성별 <span class="text-rose-500">*</span></label>
+            <select id="res-gender" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 focus:bg-white text-sm">
+              <option value="남">남성</option>
+              <option value="여">여성</option>
+            </select>
+          </div>
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">생활실</label>
+            <input type="text" id="res-room" placeholder="예: 햇살방" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 text-sm">
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">생년월일</label>
+            <input type="date" id="res-birthdate" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 text-sm">
+          </div>
+          <div>
+            <label class="block font-bold text-slate-700 mb-1">건강 상태</label>
+            <select id="res-health" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 text-sm">
+              <option value="good">좋은 편</option>
+              <option value="very_good">매우 좋음</option>
+              <option value="bad">좋지 않음</option>
+              <option value="very_bad">매우 나쁨</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label class="block font-bold text-slate-700 mb-1">장애유형 / 진단명</label>
+          <input type="text" id="res-diagnosis" placeholder="예: 뇌병변 1급" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 text-sm">
+        </div>
+        <div>
+          <label class="block font-bold text-slate-700 mb-1">특이사항</label>
+          <textarea id="res-notes" rows="2" placeholder="임상 참고사항..." class="w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 text-sm resize-none"></textarea>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 p-4 border-t border-slate-100 flex-shrink-0">
+        <button onclick="toggleAddResidentModal(false)" class="px-4 py-2.5 border border-slate-200 text-slate-600 text-xs font-bold rounded-xl">취소</button>
+        <button onclick="saveResidentInfo()" class="px-5 py-2.5 bg-indigo-600 text-white text-xs font-bold rounded-xl shadow">저장</button>
+      </div>
+    </div>
+  </div>
+
+  </div><!-- /app-content -->
+
+  <!-- questions.js 인라인 -->
+  <script>
+  // ======== questions.js ========
+  const DEFAULT_QUESTIONS=[{id:"eat_01",category:"eating",categoryLabel:"식사",number:1,title:"식사 자립도 및 밥 취식",description:"혼자 밥과 반찬을 떠서 먹을 수 있는 수준은 어떠합니까?",options:[{value:"opt1",label:"스스로 가능",template:"스스로 밥과 반찬을 먹는 것이 가능하고,"},{value:"opt2",label:"일부 도움 필요",template:"식사(밥/반찬) 섭취 시 가끔 흘려 가벼운 신체적 보조가 필요하며,"},{value:"opt3",label:"전적 지원 필요",template:"스스로 숟가락질이 어려워 식사의 전반적인 과정을 대신 떠먹여 주는 전적 지원을 받음."}]},{id:"eat_02",category:"eating",categoryLabel:"식사",number:2,title:"국 섭취 능력",description:"국그릇을 들거나 스스로 떠서 마실 수 있습니까?",options:[{value:"opt1",label:"스스로 가능",template:"국도 스스로 먹는 것이 가능함."},{value:"opt2",label:"떠먹여주는 지원 필요",template:"국은 떠먹여 주거나 흘리지 않도록 컵에 담아 주는 지원이 필요함."},{value:"opt3",label:"국 미섭취",template:"국은 사레 흡인 위험이 커 식사 시 국물은 전혀 제공하거나 섭취하지 않음."}]},{id:"eat_03",category:"eating",categoryLabel:"식사",number:3,title:"식사 도구의 종류",description:"식사 시 주로 사용하는 도구는 무엇입니까?",options:[{value:"opt1",label:"일반 수저 사용",template:"식사 도구로 일반 수저를 사용하며,"},{value:"opt2",label:"작은 수저 사용",template:"식사 도구로 작은 수저를 사용하며,"},{value:"opt3",label:"특수 편의도구 사용",template:"식사 도구로 특수 손잡이가 달린 수저 또는 포크숟가락을 사용하며,"},{value:"opt4",label:"식기도구 사용 불가",template:"스스로 식기도구를 쥐거나 사용할 수 없어 도구를 쓰지 못하며,"}]},{id:"eat_04",category:"eating",categoryLabel:"식사",number:4,title:"식사 자세 및 장소",description:"어떤 장소와 자세에서 식사를 지원합니까?",options:[{value:"opt1",label:"밥상 (바닥 좌식)",template:"밥상에서 식사함."},{value:"opt2",label:"일반 식탁",template:"일반 식탁 의자에 앉아서 식사함."},{value:"opt3",label:"정형의자 / 휠체어",template:"휠체어 또는 자세유지 정형의자에 앉아서 식사함."},{value:"opt4",label:"침상 식사",template:"침대를 일으켜 세운 뒤 침상 위에서 식사함."}]},{id:"eat_05",category:"eating",categoryLabel:"식사",number:5,title:"밥의 제공 형태",description:"제공되는 밥의 농도/제형은 어떠합니까?",options:[{value:"opt1",label:"일반식",template:"식사(밥)은 일반식,"},{value:"opt2",label:"죽식",template:"식사(밥)은 죽식,"},{value:"opt3",label:"진밥/진죽",template:"식사(밥)은 수분이 많은 진밥,"},{value:"opt4",label:"미음/갈아서",template:"식사(밥)은 곱게 간 미음식,"}]},{id:"eat_06",category:"eating",categoryLabel:"식사",number:6,title:"반찬의 제공 형태",description:"제공되는 반찬의 손질 수준은 어떠합니까?",options:[{value:"opt1",label:"일반 반찬 그대로",template:"식사(반찬)은 일반 반찬 그대로 제공되며,"},{value:"opt2",label:"다진 반찬 (가위질)",template:"식사(반찬)은 다진 반찬(가위질)으로 제공되며,"},{value:"opt3",label:"믹서에 갈아서 제공",template:"식사(반찬)은 믹서에 완전히 갈아서 제공되며,"}]},{id:"eat_07",category:"eating",categoryLabel:"식사",number:7,title:"식사 소요 시간",description:"평균 식사 시간은 얼마나 소요됩니까?",options:[{value:"opt1",label:"10분 미만",template:"소요 시간은 10분 미만입니다."},{value:"opt2",label:"10~20분",template:"소요 시간은 10~20분입니다."},{value:"opt3",label:"20~30분",template:"소요 시간은 20~30분입니다."},{value:"opt4",label:"30분 이상",template:"소요 시간은 30분 이상 소요됩니다."}]},{id:"eat_08",category:"eating",categoryLabel:"식사",number:8,title:"하루 식사 횟수",description:"하루에 총 몇 번 식사하십니까?",options:[{value:"opt1",label:"하루 3번",template:"하루 3번 식사하며,"},{value:"opt2",label:"하루 2번",template:"하루 2번 식사하며,"},{value:"opt3",label:"수시 영양 공급",template:"특이 케이스로 소량 수시 공급하며,"}]},{id:"eat_09",category:"eating",categoryLabel:"식사",number:9,title:"고정 식사 지원자 여부",description:"식사 시 1:1 전담 직원 밀착 보조가 필수적입니까?",options:[{value:"opt1",label:"필요 없음",template:"고정 식사 지원자는 필요 없습니다."},{value:"opt2",label:"고정 지원자 필요",template:"안전을 보장하고 삼킴을 돕기 위해 고정 식사 지원자가 항상 필요합니다."}]},{id:"eat_10",category:"eating",categoryLabel:"식사",number:10,title:"식사 중 불안 및 자립 요약",description:"식사 보조 및 음용 시 감정 변화가 있거나 자립도가 어떠합니까?",options:[{value:"opt1",label:"불안 없음, 잘 먹음",template:"식사 지원 시 불안할 때는 없습니다. 혼자서 잘 먹고 있음."},{value:"opt2",label:"가끔 불안 또는 기침",template:"식사 도중 가끔 불안감을 느끼거나 사레(기침) 증세를 보여 가벼운 관찰이 필요함."},{value:"opt3",label:"항상 불안하고 기침이 잦음",template:"식사 과정 전반에서 흡인 불안감 및 잦은 기침 증세를 보이므로 집중적인 지원이 병행됨."}]},{id:"snack_01",category:"snacking",categoryLabel:"간식",number:1,title:"고체 간식 섭취 방식",description:"과자, 빵, 떡 등의 고체 간식을 먹는 방식은 어떠합니까?",options:[{value:"opt1",label:"잘 먹음",template:"고체 간식을 손 또는 숟가락으로 잘 먹고,"},{value:"opt2",label:"도움 필요",template:"고체 간식에 액체류를 섞어서 제공해야 하는 등 도움이 필요하며,"},{value:"opt3",label:"섭취 곤란",template:"고체 간식은 저작 곤란 및 질식 우려로 삼가고 있으며,"}]},{id:"snack_02",category:"snacking",categoryLabel:"간식",number:2,title:"액체 간식 섭취 방식",description:"우유, 두유, 요구르트 등의 액체 간식을 먹는 방식은 어떠합니까?",options:[{value:"opt1",label:"스스로 잘 먹음",template:"액체 간식도 컵 등을 사용하여 스스로 잘 먹을 수 있음."},{value:"opt2",label:"지원 필요",template:"액체 간식은 숟가락, 컵, 빨대 컵으로 지원해야 하는 등 지원이 필요함."},{value:"opt3",label:"전적 지원 필요",template:"액체 간식 섭취 시 사레 흡인 우려가 커 전적인 보조를 제공함."}]},{id:"snack_03",category:"snacking",categoryLabel:"간식",number:3,title:"과일 간식 제공 형태",description:"사과, 바나나, 귤 등의 과일 간식은 어떤 형태로 제공됩니까?",options:[{value:"opt1",label:"그대로 제공",template:"과일 간식은 간식 그대로 지원하며,"},{value:"opt2",label:"믹서에 갈아서",template:"과일 간식은 갈아서(연하 보조식) 지원하며,"},{value:"opt3",label:"잘게 썰거나 으깨서",template:"과일 간식은 목에 걸리지 않도록 으깨거나 잘게 썰어서 지원하며,"}]},{id:"snack_04",category:"snacking",categoryLabel:"간식",number:4,title:"간식 섭취 장소 및 자세",description:"어디에서 간식을 먹습니까?",options:[{value:"opt1",label:"일반 밥상 / 식탁",template:"간식 섭취 밥상에서 지원함."},{value:"opt2",label:"정형의자 착석",template:"정형의자에 앉아 고정된 자세에서 간식 섭취를 지원함."},{value:"opt3",label:"바닥 또는 웨지",template:"바닥 또는 경사 조절용 웨지 매트 위에서 지원함."},{value:"opt4",label:"침상 식사 자세",template:"안전을 위해 침상을 세운 뒤 침상 테이블에서 지원함."}]},{id:"snack_05",category:"snacking",categoryLabel:"간식",number:5,title:"고체 간식 소요 시간",description:"고체 간식 섭취 시 걸리는 시간은 얼마입니까?",options:[{value:"opt1",label:"5분 미만",template:"고체 간식은 5분 미만,"},{value:"opt2",label:"10분 이하",template:"고체 간식은 10분 이하,"},{value:"opt3",label:"10~20분",template:"고체 간식은 10~20분,"},{value:"opt4",label:"20분 이상",template:"고체 간식은 20분 이상이 소요됨."}]},{id:"snack_06",category:"snacking",categoryLabel:"간식",number:6,title:"액체 간식 소요 시간",description:"액체 간식 섭취 시 걸리는 시간은 얼마입니까?",options:[{value:"opt1",label:"5분 미만",template:"액체 간식은 5분 미만이 소요됨."},{value:"opt2",label:"5~10분",template:"액체 간식은 5~10분이 소요됨."},{value:"opt3",label:"10분 이상",template:"액체 간식은 10분 이상 소요됨."}]},{id:"snack_07",category:"snacking",categoryLabel:"간식",number:7,title:"선호/비선호 간식 유무",description:"대상자의 호불호가 뚜렷한 편입니까?",options:[{value:"opt1",label:"호불호 없음",template:"좋아하거나 싫어하는 간식이 없으며,"},{value:"opt2",label:"선호/비선호 뚜렷",template:"특정 맛에 대한 선호 및 비선호가 뚜렷하며,"}]},{id:"snack_08",category:"snacking",categoryLabel:"간식",number:8,title:"스스로 간식 선택 여부",description:"스스로 간식 메뉴를 고르거나 의견을 표현할 수 있습니까?",options:[{value:"opt1",label:"선택 가능",template:"원하는 간식을 스스로 선택하고 거부 또는 선호를 표현할 수 있음."},{value:"opt2",label:"선택할 수 없음",template:"간식을 스스로 선택할 수 없음."}]},{id:"snack_09",category:"snacking",categoryLabel:"간식",number:9,title:"부수적 필요 용품",description:"간식을 섭취할 때 특수 앞치마, 턱받이 등의 도구가 필요합니까?",options:[{value:"opt1",label:"없음",template:"간식을 먹을 때 부수적으로 필요한 용품은 없음."},{value:"opt2",label:"턱받이 필요",template:"흘림 방지를 위해 턱받이를 착용해야 함."},{value:"opt3",label:"특수 그릇/스푼 필요",template:"스스로 먹을 때 필요한 미끄럼방지 패드 또는 특수 그릇이 필요함."}]},{id:"snack_10",category:"snacking",categoryLabel:"간식",number:10,title:"간식 지원 시 심리 상태",description:"간식을 먹을 때 불안해하거나 거부하는 반응이 있습니까?",options:[{value:"opt1",label:"불안할 때 없음",template:"지원 시 불안할 때는 없음."},{value:"opt2",label:"가끔 있음",template:"간식 지원 시 가끔 불안해하거나 음식을 급하게 삼키려 함."},{value:"opt3",label:"항상 있음",template:"간식 제공 시 항상 불안감을 표출하고 삼키는 과정을 두려워함."}]},{id:"mob_01",category:"mobility",categoryLabel:"이동",number:1,title:"스스로 이동 가능 여부",description:"보조 인력 없이 자력으로 위치 이동이 가능합니까?",options:[{value:"opt1",label:"스스로 이동 가능",template:"스스로 이동이 가능함."},{value:"opt2",label:"일부 보조 필요",template:"이동에 부분적인 지탱 및 가벼운 보조가 요구됨."},{value:"opt3",label:"이동 불가",template:"혼자서는 기동이 불가능하여 전적인 지원(휠체어 밀기)이 요구됨."}]},{id:"mob_02",category:"mobility",categoryLabel:"이동",number:2,title:"원내 주요 이동 수단",description:"시설 실내에서 주로 사용하는 이동 방법은 무엇입니까?",options:[{value:"opt1",label:"네발 기기 및 휠체어",template:"원내 이동은 네발 기기로 이동하며 휠체어를 사용하며,"},{value:"opt2",label:"자립 보행",template:"원내 이동은 독립적으로 보행하며,"},{value:"opt3",label:"보행 보조기 사용",template:"원내 이동은 워커 또는 보행 보조기구에 의지하여 이동하며,"},{value:"opt4",label:"휠체어 전적 의존",template:"원내 이동 시 타인이 밀어주는 휠체어에 전적으로 탑승하여 이동하며,"}]},{id:"mob_03",category:"mobility",categoryLabel:"이동",number:3,title:"장애물 회피 및 인지",description:"이동 중에 주변 가구, 문턱 등의 장애물을 스스로 인지하고 피합니까?",options:[{value:"opt1",label:"피해갈 수 있음",template:"장애물을 피해갈 수 있음."},{value:"opt2",label:"종종 부딪히거나 회피 불가",template:"이동 중 가구 모서리나 벽에 자주 부딪혀 밀착 감독이 필요함."}]},{id:"mob_04",category:"mobility",categoryLabel:"이동",number:4,title:"정형의자 이승 자립도",description:"자세유지 정형의자에 스스로 승/하차가 가능합니까?",options:[{value:"opt1",label:"스스로 가능",template:"정형의자에 앉고 내려오는 것 모두 스스로 가능함."},{value:"opt2",label:"보조 필요",template:"정형의자에 오르내릴 때 직원의 부분적 부축이나 보조가 필요함."},{value:"opt3",label:"전적 지원 필요",template:"정형의자 이승 시 리프트나 2인 이상의 전적 보조가 필요함."}]},{id:"mob_05",category:"mobility",categoryLabel:"이동",number:5,title:"휠체어 이승 자립도",description:"휠체어에 스스로 앉고 내려오는 것이 가능합니까?",options:[{value:"opt1",label:"스스로 가능",template:"휠체어에 앉고 내려오는 것 모두 스스로 가능함."},{value:"opt2",label:"보조 필요",template:"휠체어로 몸을 옮길 때 보조가 필요함."},{value:"opt3",label:"전적 지원 필요",template:"휠체어 승/하차 시 전적으로 안아 일으켜 태워 주어야 함."}]},{id:"mob_06",category:"mobility",categoryLabel:"이동",number:6,title:"의자까지의 접근 이동",description:"탑승 직전 지점까지 스스로 이동할 수 있습니까?",options:[{value:"opt1",label:"스스로 이동 가능",template:"정형의자 및 휠체어 앞까지 이동은 가능함."},{value:"opt2",label:"접근 시 보조 필요",template:"휠체어 앞까지 이동하는 것도 균형 유지를 위해 도움을 제공해야 함."},{value:"opt3",label:"자력 접근 불가",template:"의자나 휠체어 위치까지 스스로 다가가지 못해 전적 이동 보조를 제공함."}]},{id:"mob_07",category:"mobility",categoryLabel:"이동",number:7,title:"휠체어 발판 조작",description:"휠체어를 탈 때 발판을 스스로 젖히거나 채울 수 있습니까?",options:[{value:"opt1",label:"스스로 조작 가능",template:"휠체어 발판을 스스로 열고 잠글 수 있음."},{value:"opt2",label:"타인이 제거해줘야 함",template:"휠체어에서 내려올 때 발판은 제거해 줘야 함."},{value:"opt3",label:"조작 불가",template:"휠체어 발판 작동법을 몰라 모든 조작을 스태프가 전담함."}]},{id:"mob_08",category:"mobility",categoryLabel:"이동",number:8,title:"휠체어 브레이크 조작",description:"멈춰 서 있거나 타고 내릴 때 잠금장치를 스스로 잠급니까?",options:[{value:"opt1",label:"스스로 잠금/해제 가능",template:"휠체어 브레이크를 자력으로 체결하고 풉니다."},{value:"opt2",label:"조작 미숙 (안전 위험)",template:"잠금장치를 잘 채우지 않고 승하차하려 해 낙상 위험이 있어 직원의 확인이 필수적임."},{value:"opt3",label:"조작 불가",template:"잠금장치의 개념을 이해하지 못해 직원이 항시 잠그고 열어 줍니다."}]},{id:"mob_09",category:"mobility",categoryLabel:"이동",number:9,title:"실외 이동 자립도",description:"산책이나 실외 활동 시 이동 수준은 어떠합니까?",options:[{value:"opt1",label:"감독 하 이동 가능",template:"실외 이동 시 가벼운 길안내 및 시야 내 감시만으로 가능함."},{value:"opt2",label:"물리적 지지 필수",template:"실외에서는 턱 넘기 등 밀착 신체 지원이 반드시 들어감."},{value:"opt3",label:"전적 이동 보조",template:"실외 기동성이 크게 부족하여 전적으로 직원이 휠체어를 밀어 보조함."}]},{id:"mob_10",category:"mobility",categoryLabel:"이동",number:10,title:"낙상 이력 및 이동 정서",description:"최근 낙상 사고의 위험이 있거나 이동에 두려움이 있습니까?",options:[{value:"opt1",label:"안정적이며 겁 없음",template:"이동 행동에 안정적이며 특별한 불안 반응을 보이지 않음."},{value:"opt2",label:"겁이 많거나 속도 미흡",template:"이동 시 낙상에 대한 불안감으로 겁이 많거나, 간혹 너무 서두름."},{value:"opt3",label:"거동 극도 기피",template:"과거 낙상 골절 경험이 있어 자력 이동에 강한 공포심을 느끼며 움직임을 회피하려 함."}]},{id:"wat_01",category:"water",categoryLabel:"물",number:1,title:"물 마시는 도구",description:"수분 섭취 시 어떤 그릇/도구를 사용합니까?",options:[{value:"opt1",label:"일반 컵",template:"물을 마시는 도구로 일반 컵을 사용하며,"},{value:"opt2",label:"빨대 컵",template:"물을 마시는 도구로 빨대 컵을 사용하며,"},{value:"opt3",label:"특수 컵",template:"물을 마시는 도구로 특수 손잡이 컵을 사용하며,"},{value:"opt4",label:"컵 사용 불가 (숟가락 보조)",template:"컵을 혼자 쥐기 어려워 숟가락으로 떠서 먹여 주는 지원을 받으며,"}]},{id:"wat_02",category:"water",categoryLabel:"물",number:2,title:"마시기 동작 자립도",description:"흘리지 않고 스스로 넘겨 마시는 것이 가능합니까?",options:[{value:"opt1",label:"스스로 잘 마심",template:"스스로 잘 마심."},{value:"opt2",label:"일부 흘림",template:"손 떨림이나 삼킴 서툶으로 인해 주변에 많이 흘려 보조가 필요함."},{value:"opt3",label:"전적 보조",template:"스스로 삼킴 제어가 전혀 되지 않아 직원이 전적으로 음용을 전담 보조함."}]},{id:"wat_03",category:"water",categoryLabel:"물",number:3,title:"물에 대한 선호도",description:"평소 물을 선호하며 스스로 요구하는 경향이 있습니까?",options:[{value:"opt1",label:"물을 좋아하는 편",template:"물을 좋아하는 편이며,"},{value:"opt2",label:"보통",template:"물 섭취에 대해 특별한 선호나 거부 반응이 없으며,"},{value:"opt3",label:"물을 싫어하는 편",template:"물을 적극 기피하고 싫어하는 편이라 강제적인 음수 격려가 필요하며,"}]},{id:"wat_04",category:"water",categoryLabel:"물",number:4,title:"물 섭취 자세 및 장소",description:"어디에서 물을 마십니까?",options:[{value:"opt1",label:"바닥",template:"섭취 장소는 바닥에서 먹고 있음."},{value:"opt2",label:"식탁 / 밥상",template:"섭취 장소는 식탁에서 마시고 있음."},{value:"opt3",label:"정형의자",template:"섭취 장소는 정형의자에 고정하여 앉은 상태에서 마시고 있음."},{value:"opt4",label:"침상",template:"섭취 장소는 침상 테이블 혹은 반쯤 일어선 침대 위에서 먹고 있음."}]},{id:"wat_05",category:"water",categoryLabel:"물",number:5,title:"물 음용 제형",description:"일반 생수 외에 특수 조치를 취해 마십니까?",options:[{value:"opt1",label:"생수 그대로",template:"물을 마실 때 물만 마시며,"},{value:"opt2",label:"점증제(토로미) 혼합",template:"삼킴 흡인을 방지하기 위해 점증제(토로미)를 혼합하여 마시며,"},{value:"opt3",label:"보리차/차 음료",template:"맹수 음용 거부로 연한 보리차 또는 옥수수차 형태로 섭취하며,"}]},{id:"wat_06",category:"water",categoryLabel:"물",number:6,title:"하루 물의 양 (목표)",description:"하루 평균 수분 요구 섭취 범위는 어떠합니까?",options:[{value:"opt1",label:"500ml 미만",template:"하루 물의 양은 500ml 미만입니다."},{value:"opt2",label:"500~1000ml",template:"하루 물의 양은 500~1000ml입니다."},{value:"opt3",label:"1000~1500ml",template:"하루 물의 양은 1000~1500ml입니다."},{value:"opt4",label:"1500ml 이상",template:"하루 물의 양은 1500ml 이상입니다."}]},{id:"wat_07",category:"water",categoryLabel:"물",number:7,title:"1회 음용 소요 시간",description:"한 번 제공 시 다 마시기까지 소요 시간은 어떠합니까?",options:[{value:"opt1",label:"5분 미만",template:"1회 물 제공 시 5분 미만이 소요되며,"},{value:"opt2",label:"5~10분",template:"1회 물 제공 시 5~10분이 소요되며,"},{value:"opt3",label:"10분 이상",template:"1회 물 제공 시 10분 이상이 소요되며,"}]},{id:"wat_08",category:"water",categoryLabel:"물",number:8,title:"부수 도구 및 지원량",description:"음용 보조 장비 및 실제 하루 제공 총량은 무엇입니까?",options:[{value:"opt1",label:"부수도구 없음, 1200ml",template:"부수적으로 필요한 도구는 없음. 하루 총 1,200ml를 지원합니다."},{value:"opt2",label:"부수도구 없음, 1000ml",template:"부수적으로 필요한 도구는 없음. 하루 총 1,000ml를 지원합니다."},{value:"opt3",label:"부수도구 없음, 800ml",template:"부수적으로 필요한 도구는 없음. 하루 총 800ml를 지원합니다."},{value:"opt4",label:"특수 빨대, 500ml",template:"부수적으로 컵홀더 및 흘림방지 특수 빨대가 필요하며, 하루 총 500ml를 지원합니다."}]}];
+  const HEALTH_SCALES=[{value:"very_bad",label:"매우 좋지 않음"},{value:"bad",label:"좋지 않음"},{value:"good",label:"좋은 편임"},{value:"very_good",label:"매우 좋음"}];
+  const QuestionsManager={STORAGE_KEY:"adl_eval_questions_v2",getQuestions(){const s=localStorage.getItem(this.STORAGE_KEY);if(s){try{return JSON.parse(s);}catch(e){}}return JSON.parse(JSON.stringify(DEFAULT_QUESTIONS));},saveQuestions(q){localStorage.setItem(this.STORAGE_KEY,JSON.stringify(q));},resetQuestions(){localStorage.removeItem(this.STORAGE_KEY);return JSON.parse(JSON.stringify(DEFAULT_QUESTIONS));}};
+  window.DEFAULT_QUESTIONS=DEFAULT_QUESTIONS;window.HEALTH_SCALES=HEALTH_SCALES;window.QuestionsManager=QuestionsManager;
+  </script>
+
+  <script>
+  // ======== app.js (모바일 최적화 버전) ========
+  const state={residents:[],evaluations:{},questions:[],currentTab:'dashboard',currentResidentId:null,currentCategorySubtab:'eating',filterStatus:'all',evalSubtab:'write',statsCategory:'eating',facilityReportCategory:'eating',questionsCategory:'eating',charts:[]};
+
+  document.addEventListener("DOMContentLoaded",()=>{
+    switchTab('dashboard');
+  });
+
+  // 로그인 성공 후에만 데이터 로드 시작
+  window.addEventListener('auth-ready', ()=>{
+    loadDatabase();
+  });
+
+  async function handleLoginSubmit(){
+    const email=document.getElementById('login-email').value.trim();
+    const password=document.getElementById('login-password').value;
+    const errEl=document.getElementById('login-error');
+    const btn=document.getElementById('login-submit-btn');
+    errEl.classList.add('hidden');
+    if(!email||!password){errEl.textContent="이메일과 비밀번호를 입력해주세요.";errEl.classList.remove('hidden');return;}
+    btn.disabled=true;btn.innerText="로그인 중...";
+    try{
+      await window._fbAuth.login(email,password);
+    }catch(e){
+      errEl.textContent="이메일 또는 비밀번호가 올바르지 않습니다.";
+      errEl.classList.remove('hidden');
+    }finally{
+      btn.disabled=false;btn.innerText="로그인";
+    }
+  }
+
+  function handleLogoutClick(){
+    if(confirm("로그아웃 하시겠습니까?")){
+      window._fbAuth.logout();
+    }
+  }
+  window.handleLoginSubmit=handleLoginSubmit;
+  window.handleLogoutClick=handleLogoutClick;
+
+  // Firebase 연동 로드/저장
+  let _fbUnsubscribe = null; // 실시간 구독 해제 함수
+
+  async function loadDatabase(){
+    state.questions=window.QuestionsManager.getQuestions();
+    // 로컬 먼저 (빠른 초기 렌더)
+    try{state.residents=JSON.parse(localStorage.getItem("adl_v2_residents")||"[]");}catch(e){state.residents=[];}
+    try{state.evaluations=JSON.parse(localStorage.getItem("adl_v2_evaluations")||"{}");}catch(e){state.evaluations={};}
+    updateGlobalStats();
+
+    // Firebase 실시간 자동 동기화 구독 (최초 1회만)
+    if(window._fb && !_fbUnsubscribe){
+      try{
+        setSyncStatus('loading');
+        // 초기 전체 로드 (문항 포함)
+        const {residents, evaluations, questions} = await window._fb.loadAll();
+        if(residents.length > 0 || Object.keys(evaluations).length > 0){
+          state.residents = residents;
+          state.evaluations = evaluations;
+          localStorage.setItem("adl_v2_residents", JSON.stringify(residents));
+          localStorage.setItem("adl_v2_evaluations", JSON.stringify(evaluations));
+        }
+        // Firebase에 저장된 문항이 있으면 우선 적용
+        if(questions && questions.length > 0){
+          state.questions = questions;
+          window.QuestionsManager.saveQuestions(questions);
+        }
+        updateGlobalStats();
+        if(state.currentTab==='evaluation'){renderResidentSidebar();renderEvaluationView();}
+        if(state.currentTab==='questions'){renderQuestionsConfig();}
+        setSyncStatus('ok');
+
+        // 실시간 자동 구독 시작 (다른 기기에서 변경 시 자동 반영)
+        _fbUnsubscribe = window._fb.subscribeAll(
+          (residents) => {
+            state.residents = residents;
+            localStorage.setItem("adl_v2_residents", JSON.stringify(residents));
+            updateGlobalStats();
+            if(state.currentTab==='evaluation'){renderResidentSidebar();renderEvaluationView();}
+            setSyncStatus('ok');
+          },
+          (evaluations) => {
+            state.evaluations = evaluations;
+            localStorage.setItem("adl_v2_evaluations", JSON.stringify(evaluations));
+            updateGlobalStats();
+            if(state.currentTab==='evaluation'){renderResidentSidebar();renderEvaluationView();}
+            setSyncStatus('ok');
+          },
+          (questions) => {
+            state.questions = questions;
+            window.QuestionsManager.saveQuestions(questions);
+            if(state.currentTab==='questions'){renderQuestionsConfig();}
+            if(state.currentTab==='evaluation'){renderEvaluationForm();}
+            setSyncStatus('ok');
+          }
+        );
+      }catch(e){
+        console.error('Firebase 로드 실패:', e);
+        setSyncStatus('error');
+      }
+    }
+  }
+  function setSyncStatus(status){
+    const el=document.getElementById('sync-status');
+    if(!el)return;
+    if(status==='ok'){el.className='text-emerald-500 text-[10px]';el.innerText='● 동기화됨';}
+    else if(status==='loading'){el.className='text-amber-500 text-[10px]';el.innerText='● 동기화중...';}
+    else if(status==='error'){el.className='text-red-400 text-[10px]';el.innerText='● 오프라인';}
+  }
+  async function saveResidentsState(){
+    localStorage.setItem("adl_v2_residents",JSON.stringify(state.residents));
+    if(window._fb){
+      try{
+        setSyncStatus('loading');
+        // 변경된 거주인만 저장
+        for(const r of state.residents){ await window._fb.saveResident(r); }
+        setSyncStatus('ok');
+      }catch(e){setSyncStatus('error');console.error(e);}
+    }
+  }
+  async function saveEvaluationsState(){
+    localStorage.setItem("adl_v2_evaluations",JSON.stringify(state.evaluations));
+    if(window._fb){
+      try{
+        setSyncStatus('loading');
+        for(const [id,ev] of Object.entries(state.evaluations)){ await window._fb.saveEvaluation(id,ev); }
+        setSyncStatus('ok');
+      }catch(e){setSyncStatus('error');console.error(e);}
+    }
+  }
+
+  function switchTab(tabId){
+    state.currentTab=tabId;
+    document.querySelectorAll(".tab-content").forEach(el=>{el.classList.remove("active");});
+    const tabEl=document.getElementById(`tab-${tabId}`);
+    if(tabEl)tabEl.classList.add("active");
+    // 하단 네비 스타일
+    document.querySelectorAll(".bottom-nav-btn").forEach(btn=>{
+      btn.classList.remove("text-indigo-600");btn.classList.add("text-slate-400");
+    });
+    const activeBtn=document.getElementById(`nav-${tabId}`);
+    if(activeBtn){activeBtn.classList.remove("text-slate-400");activeBtn.classList.add("text-indigo-600");}
+    // 평가탭 헤더 버튼
+    const openBtn=document.getElementById("open-resident-panel-btn");
+    if(openBtn) openBtn.classList.toggle("hidden",tabId!=='evaluation');
+    if(tabId==='dashboard'){ updateGlobalStats(); }
+    else if(tabId==='evaluation'){renderResidentSidebar();renderEvaluationView();}
+    else if(tabId==='statistics')renderStatisticsCharts();
+    else if(tabId==='reports')renderFacilityReport();
+    else if(tabId==='questions')renderQuestionsConfig();
+        window.scrollTo(0,0);
+  }
+
+  // 거주인 패널 열기/닫기
+  function openResidentPanel(){
+    document.getElementById("resident-panel").classList.add("open");
+    document.getElementById("panel-overlay").classList.add("show");
+    renderResidentSidebar();
+  }
+  function closeResidentPanel(){
+    document.getElementById("resident-panel").classList.remove("open");
+    document.getElementById("panel-overlay").classList.remove("show");
+  }
+
+  function renderResidentSidebar(){
+    const container=document.getElementById("resident-list-container");
+    if(!container)return;
+    container.innerHTML="";
+    const query=(document.getElementById("resident-search-input")||{}).value?.toLowerCase().trim()||"";
+    const filtered=state.residents.filter(r=>{
+      const m=r.name.toLowerCase().includes(query)||(r.room||"").toLowerCase().includes(query)||(r.diagnosis||"").toLowerCase().includes(query);
+      const done=isEvaluationFinished(r.id);
+      if(state.filterStatus==='done')return m&&done;
+      if(state.filterStatus==='pending')return m&&!done;
+      return m;
+    });
+    const badge=document.getElementById("total-badge");
+    if(badge)badge.innerText=state.residents.length;
+    if(filtered.length===0){container.innerHTML=`<div class="p-6 text-center text-xs text-slate-400">거주인이 없습니다.</div>`;return;}
+    filtered.forEach(r=>{
+      const isSelected=r.id===state.currentResidentId;
+      const done=isEvaluationFinished(r.id);
+      const item=document.createElement("div");
+      item.className=`p-3.5 cursor-pointer flex items-center justify-between border-l-4 ${isSelected?'bg-indigo-50 border-indigo-600':'border-transparent hover:bg-slate-50'}`;
+      item.onclick=()=>{selectResident(r.id);closeResidentPanel();};
+      item.innerHTML=`
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-bold text-slate-900">${r.name}</span>
+            <span class="text-[10px] text-slate-400">${r.gender}/${calculateAge(r.birthdate)}세</span>
+          </div>
+          <div class="flex items-center gap-1.5 mt-0.5">
+            <span class="text-[10px] px-1.5 bg-slate-100 text-slate-600 rounded">${r.room||'생활실 미지정'}</span>
+            <span class="text-[10px] text-slate-400 truncate max-w-[120px]">${r.diagnosis||''}</span>
+          </div>
+        </div>
+        <div class="flex-shrink-0 ml-2">
+          ${done?'<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800">✓완료</span>':'<span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-500">대기</span>'}
+        </div>`;
+      container.appendChild(item);
+    });
+  }
+
+  function filterResidents(){renderResidentSidebar();}
+  function setFilterStatus(status){
+    state.filterStatus=status;
+    ['all','done','pending'].forEach(st=>{
+      const btn=document.getElementById(`filter-btn-${st}`);
+      if(btn) btn.className=st===status?"py-1.5 rounded bg-white text-indigo-600 shadow-sm":"py-1.5 rounded text-slate-600";
+    });
+    renderResidentSidebar();
+  }
+
+  function selectResident(id){
+    state.currentResidentId=id;
+    state.currentCategorySubtab='eating';
+    state.evalSubtab='write';
+    renderEvaluationView();
+    renderResidentSidebar();
+  }
+
+  function calculateAge(b){
+    if(!b)return'미상';
+    const d=new Date(b),t=new Date();
+    let a=t.getFullYear()-d.getFullYear();
+    const m=t.getMonth()-d.getMonth();
+    if(m<0||(m===0&&t.getDate()<d.getDate()))a--;
+    return a;
+  }
+  function formatBirthdate(s){
+    if(!s)return"-";
+    const d=new Date(s);
+    return`${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일`;
+  }
+  function formatHealth(c){
+    const m={very_bad:"■ 매우 좋지 않음  □ 좋지 않음  □ 좋은 편임  □ 매우 좋음",bad:"□ 매우 좋지 않음  ■ 좋지 않음  □ 좋은 편임  □ 매우 좋음",good:"□ 매우 좋지 않음  □ 좋지 않음  ■ 좋은 편임  □ 매우 좋음",very_good:"□ 매우 좋지 않음  □ 좋지 않음  □ 좋은 편임  ■ 매우 좋음"};
+    return m[c]||m['good'];
+  }
+
+  function toggleAddResidentModal(show){
+    const modal=document.getElementById("resident-modal");
+    if(show){
+      document.getElementById("res-modal-title").innerText="새 거주인 등록";
+      document.getElementById("res-edit-id").value="";
+      ["res-name","res-diagnosis","res-room","res-notes"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
+      document.getElementById("res-gender").value="남";
+      document.getElementById("res-birthdate").value="";
+      document.getElementById("res-health").value="good";
+      modal.className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4";
+    }else{
+      modal.className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4";
+    }
+      }
+
+  function openEditResidentModal(){
+    if(!state.currentResidentId)return;
+    const r=state.residents.find(x=>x.id===state.currentResidentId);
+    if(!r)return;
+    document.getElementById("res-modal-title").innerText="거주인 정보 수정";
+    document.getElementById("res-edit-id").value=r.id;
+    document.getElementById("res-name").value=r.name;
+    document.getElementById("res-gender").value=r.gender;
+    document.getElementById("res-birthdate").value=r.birthdate||"";
+    document.getElementById("res-diagnosis").value=r.diagnosis||"";
+    document.getElementById("res-room").value=r.room||"";
+    document.getElementById("res-health").value=r.health||"good";
+    document.getElementById("res-notes").value=r.notes||"";
+    document.getElementById("resident-modal").className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4";
+      }
+
+  function saveResidentInfo(){
+    const editId=document.getElementById("res-edit-id").value;
+    const name=document.getElementById("res-name").value.trim();
+    if(!name){alert("성명은 필수 입력 항목입니다.");return;}
+    const data={name,gender:document.getElementById("res-gender").value,birthdate:document.getElementById("res-birthdate").value,diagnosis:document.getElementById("res-diagnosis").value.trim(),room:document.getElementById("res-room").value.trim(),health:document.getElementById("res-health").value,notes:document.getElementById("res-notes").value.trim()};
+    if(editId){
+      const i=state.residents.findIndex(r=>r.id===editId);
+      if(i!==-1)state.residents[i]={...state.residents[i],...data};
+    }else{
+      data.id="res_"+Date.now();
+      state.residents.push(data);
+    }
+    saveResidentsState();loadDatabase();toggleAddResidentModal(false);
+    const id=editId||state.residents[state.residents.length-1]?.id;
+    if(id)selectResident(id);
+  }
+
+  async function deleteResident(){
+    if(!state.currentResidentId)return;
+    const r=state.residents.find(x=>x.id===state.currentResidentId);
+    if(!r||!confirm(`'${r.name}' 님의 모든 평가 데이터를 삭제하시겠습니까?`))return;
+    const delId = state.currentResidentId;
+    delete state.evaluations[delId];
+    state.residents=state.residents.filter(x=>x.id!==delId);
+    if(window._fb){ try{ await window._fb.deleteResident(delId); }catch(e){console.error(e);} }
+    saveResidentsState();saveEvaluationsState();
+    state.currentResidentId=null;
+    loadDatabase();renderResidentSidebar();renderEvaluationView();
+  }
+
+  function isEvaluationFinished(id){
+    const ev=state.evaluations[id];
+    if(!ev||!ev.scores)return false;
+    return state.questions.every(q=>ev.scores[q.id]!==undefined&&ev.scores[q.id]!==null);
+  }
+
+  function switchEvalSubtab(mode){
+    state.evalSubtab=mode;
+    const wb=document.getElementById("eval-subtab-write-btn");
+    const rb=document.getElementById("eval-subtab-report-btn");
+    const wc=document.getElementById("eval-write-container");
+    const rc=document.getElementById("eval-report-container");
+    if(mode==='write'){
+      wb.className="flex-1 py-2 text-xs font-bold rounded-xl text-indigo-600 bg-white shadow-sm transition text-center";
+      rb.className="flex-1 py-2 text-xs font-bold rounded-xl text-slate-500 transition text-center";
+      wc.classList.remove("hidden");rc.classList.add("hidden");
+      renderEvaluationForm();
+    }else{
+      rb.className="flex-1 py-2 text-xs font-bold rounded-xl text-indigo-600 bg-white shadow-sm transition text-center";
+      wb.className="flex-1 py-2 text-xs font-bold rounded-xl text-slate-500 transition text-center";
+      wc.classList.add("hidden");rc.classList.remove("hidden");
+      renderIndividualReportPaper();
+    }
+  }
+
+  function renderEvaluationView(){
+    const empty=document.getElementById("evaluation-empty-state");
+    const content=document.getElementById("evaluation-content-panel");
+    if(!state.currentResidentId){
+      empty.classList.remove("hidden");content.classList.add("hidden");
+      return;
+    }
+    empty.classList.add("hidden");content.classList.remove("hidden");
+    // 선택된 거주인 정보 업데이트
+    const r=state.residents.find(x=>x.id===state.currentResidentId);
+    if(r){
+      document.getElementById("res-avatar").innerText=r.name[0];
+      document.getElementById("selected-res-name").innerText=r.name;
+      document.getElementById("selected-res-info").innerText=`${r.gender}/${calculateAge(r.birthdate)}세 · ${r.room||'생활실 미지정'} · ${r.diagnosis||''}`;
+    }
+    if(state.evalSubtab==='write')renderEvaluationForm();
+    else renderIndividualReportPaper();
+  }
+
+  function renderEvaluationForm(){
+    const resId=state.currentResidentId;
+    const r=state.residents.find(x=>x.id===resId);
+    if(!r)return;
+    updateSubtabsProgress(resId);
+    // 카테고리 탭 활성화
+    document.querySelectorAll(".cat-tab-btn").forEach(btn=>{
+      btn.className="cat-tab-btn px-4 py-3 text-xs font-bold border-b-2 border-transparent text-slate-500 flex items-center gap-1.5 whitespace-nowrap transition";
+    });
+    const activeTab=document.getElementById(`subtab-${state.currentCategorySubtab}`);
+    if(activeTab)activeTab.className="cat-tab-btn px-4 py-3 text-xs font-bold border-b-2 border-indigo-600 text-indigo-600 flex items-center gap-1.5 whitespace-nowrap transition";
+    const ev=state.evaluations[resId]||{scores:{},opinion:""};
+    const qContainer=document.getElementById("evaluation-questions-list");
+    qContainer.innerHTML="";
+    const qs=state.questions.filter(q=>q.category===state.currentCategorySubtab);
+    qs.forEach(q=>{
+      const checked=ev.scores[q.id];
+      const div=document.createElement("div");
+      div.className="pb-5 border-b border-slate-100 last:border-b-0 space-y-3";
+      let optsHtml="";
+      q.options.forEach(opt=>{
+        const isC=checked===opt.value;
+        optsHtml+=`<label class="custom-radio ${isC?'active-option':''}" onclick="selectQuestionOption('${q.id}','${opt.value}',this)">
+          <input type="radio" name="q_${q.id}" value="${opt.value}" ${isC?'checked':''}>
+          <div class="text-xs font-semibold text-slate-800">${opt.label}</div>
+        </label>`;
+      });
+      div.innerHTML=`
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="bg-indigo-600 text-white font-bold text-[11px] w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0">${q.number}</span>
+            <h4 class="text-sm font-bold text-slate-900">${q.title}</h4>
+          </div>
+          <p class="text-xs text-slate-400 mt-1 ml-7">${q.description}</p>
+        </div>
+        <div class="space-y-2 ml-7">${optsHtml}</div>`;
+      qContainer.appendChild(div);
+    });
+  }
+
+  function selectQuestionOption(qId,value,element){
+    const resId=state.currentResidentId;if(!resId)return;
+    if(!state.evaluations[resId])state.evaluations[resId]={scores:{},opinion:""};
+    state.evaluations[resId].scores[qId]=value;
+    element.parentElement.querySelectorAll(".custom-radio").forEach(l=>l.classList.remove("active-option"));
+    element.classList.add("active-option");
+    const radio=element.querySelector("input[type='radio']");if(radio)radio.checked=true;
+    updateSubtabsProgress(resId);
+  }
+
+  function updateSubtabsProgress(resId){
+    const ev=state.evaluations[resId]||{scores:{}};
+    ['eating','snacking','mobility','water'].forEach(cat=>{
+      const qs=state.questions.filter(q=>q.category===cat);
+      const done=qs.filter(q=>ev.scores[q.id]!=null).length;
+      const badge=document.getElementById(`prog-${cat}`);
+      if(badge){
+        badge.innerText=`${done}/${qs.length}`;
+        badge.className=done===qs.length?"bg-emerald-100 text-emerald-700 text-[9px] px-1.5 rounded-full font-mono font-bold":"bg-slate-200 text-slate-700 text-[9px] px-1.5 rounded-full font-mono";
+      }
+    });
+  }
+
+  function switchCategorySubtab(catId){
+    state.currentCategorySubtab=catId;
+    renderEvaluationForm();
+    // 탭 스크롤
+    const btn=document.getElementById(`subtab-${catId}`);
+    if(btn)btn.scrollIntoView({behavior:'smooth',block:'nearest',inline:'center'});
+  }
+
+  function saveCurrentEvaluation(){
+    const resId=state.currentResidentId;if(!resId)return;
+    if(!state.evaluations[resId])state.evaluations[resId]={scores:{},opinion:""};
+    state.evaluations[resId].updatedAt=new Date().toISOString();
+    saveEvaluationsState();
+    const done=isEvaluationFinished(resId);
+    if(done){
+      if(!state.evaluations[resId].opinion)state.evaluations[resId].opinion=generateAutoClinicalOpinion(resId);
+      alert("평가가 완료되었습니다! 결과지를 확인하세요.");
+      switchEvalSubtab('report');
+    }else{
+      alert("임시 저장되었습니다. 38개 전 문항을 채우면 완료 처리됩니다.");
+    }
+    loadDatabase();renderResidentSidebar();
+  }
+
+  function renderIndividualReportPaper(){
+    const resId=state.currentResidentId;
+    const r=state.residents.find(x=>x.id===resId);if(!r)return;
+    const ev=state.evaluations[resId]||{scores:{},opinion:""};
+    const done=isEvaluationFinished(resId);
+    document.getElementById("rep-eval-date").innerText=ev.updatedAt?new Date(ev.updatedAt).toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric'}):new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric'});
+    document.getElementById("rep-name").innerText=r.name;
+    document.getElementById("rep-gender").innerHTML=r.gender==='남'?'■ 남  □ 여':'□ 남  ■ 여';
+    document.getElementById("rep-birthdate").innerText=formatBirthdate(r.birthdate);
+    document.getElementById("rep-diagnosis").innerText=r.diagnosis||"-";
+    document.getElementById("rep-health").innerHTML=formatHealth(r.health);
+    ['eating','snacking','mobility','water'].forEach(cat=>{
+      const descEl=document.getElementById(`rep-desc-${cat}`);
+      const scoreEl=document.getElementById(`rep-score-${cat}`);
+      const max=cat==='water'?24:30;
+      const score=calculateCategoryScore(resId,cat);
+      scoreEl.innerText=`(${score}/${max})`;
+      if(!done){descEl.innerHTML=`<span class='text-red-400 italic text-[10px]'>미완료 문항이 있습니다.</span>`;return;}
+      const qs=state.questions.filter(q=>q.category===cat);
+      const sentences=qs.map(q=>{const opt=q.options.find(o=>o.value===ev.scores[q.id]);return opt?.template||"";}).filter(Boolean);
+      descEl.innerText=sentences.join(" ");
+    });
+    const opEl=document.getElementById("rep-overall-clinical-opinion");
+    if(done){
+      if(!ev.opinion)ev.opinion=generateAutoClinicalOpinion(resId);
+      opEl.innerHTML=`<textarea onblur="updateOpinionText(this.value)" class="w-full bg-transparent border-0 text-[10px] text-slate-800 p-0 focus:outline-none leading-relaxed" rows="5">${ev.opinion}</textarea>`;
+    }else{
+      opEl.innerText="평가 대기 중...";
+    }
+  }
+
+  function updateOpinionText(v){
+    const resId=state.currentResidentId;
+    if(!resId||!state.evaluations[resId])return;
+    state.evaluations[resId].opinion=v;saveEvaluationsState();
+  }
+
+  function generateAutoClinicalOpinion(resId){
+    const r=state.residents.find(x=>x.id===resId);if(!r)return"";
+    const e=calculateCategoryScore(resId,'eating'),s=calculateCategoryScore(resId,'snacking'),m=calculateCategoryScore(resId,'mobility'),w=calculateCategoryScore(resId,'water');
+    const total=e+s+m+w;
+    let t=`[작업치료 ADL 진단 소견]\n대상자는 ${r.diagnosis||'장애인'}이며, ADL 총 자립도 점수는 ${total}점(114점 만점)입니다.\n`;
+    if(e>=25&&s>=25&&m>=25)t+=`일상생활 대부분의 영역에서 독립적 수행 수준이 높은 자립군에 속합니다.`;
+    else if(e<15||s<15||w<12)t+=`식사 또는 음수 등의 삼킴 연하 능력이 매우 취약하여 집중 관조가 필요한 위험 대상자입니다.`;
+    else t+=`전반적인 기능 저하로 인해 중등도 보조가 제공되고 있습니다. 능동적 자립 동작 격려와 재활 중재가 필요합니다.`;
+    return t;
+  }
+
+  function calculateCategoryScore(resId,cat){
+    const ev=state.evaluations[resId];if(!ev||!ev.scores)return 0;
+    return state.questions.filter(q=>q.category===cat).reduce((s,q)=>{
+      const v=ev.scores[q.id];
+      return s+(v==='opt1'?3:v==='opt2'?2:v==='opt3'?1:0);
+    },0);
+  }
+
+  function switchStatsCategory(catId){
+    state.statsCategory=catId;
+    document.querySelectorAll(".stats-tab-btn").forEach(b=>{b.className="stats-tab-btn px-4 py-2 text-xs font-bold rounded-xl text-slate-600";});
+    const ab=document.getElementById(`stats-nav-${catId}`);
+    if(ab)ab.className="stats-tab-btn px-4 py-2 text-xs font-bold rounded-xl text-indigo-600 bg-white shadow-sm";
+    renderStatisticsCharts();
+  }
+
+  function renderStatisticsCharts(){
+    const list=state.residents.filter(r=>isEvaluationFinished(r.id));
+    const emptyEl=document.getElementById("stats-empty-state");
+    const gridEl=document.getElementById("stats-charts-grid");
+    if(list.length===0){emptyEl.classList.remove("hidden");gridEl.classList.add("hidden");return;}
+    emptyEl.classList.add("hidden");gridEl.classList.remove("hidden");
+    state.charts.forEach(c=>c.destroy());state.charts=[];gridEl.innerHTML="";
+    const map={eating:['eat_01','eat_03','eat_04','eat_06'],snacking:['snack_01','snack_02','snack_03','snack_04'],mobility:['mob_01','mob_02','mob_04','mob_07'],water:['wat_01','wat_02','wat_04','wat_05']};
+    (map[state.statsCategory]||[]).forEach(qId=>{
+      const q=state.questions.find(x=>x.id===qId);if(!q)return;
+      const counts={};q.options.forEach(o=>{counts[o.label]=0;});
+      list.forEach(r=>{const v=state.evaluations[r.id].scores[q.id];const o=q.options.find(x=>x.value===v);if(o)counts[o.label]=(counts[o.label]||0)+1;});
+      const labels=Object.keys(counts);
+      const vals=labels.map(l=>((counts[l]/list.length)*100).toFixed(1));
+      const card=document.createElement("div");
+      card.className="glass-panel rounded-2xl p-4 border border-slate-200/60";
+      card.innerHTML=`<h3 class="text-xs font-bold text-slate-800 mb-1">${q.title}</h3><p class="text-[10px] text-slate-400 mb-3">${q.description}</p><div class="chart-wrapper"><canvas id="canvas_${q.id}"></canvas></div>`;
+      gridEl.appendChild(card);
+      const ctx=document.getElementById(`canvas_${q.id}`).getContext("2d");
+      const isPie=q.options.length<=3;
+      state.charts.push(new Chart(ctx,{type:isPie?'doughnut':'bar',data:{labels:labels.map(l=>l.split(" (")[0]),datasets:[{data:vals,backgroundColor:isPie?['rgba(99,102,241,0.85)','rgba(59,130,246,0.85)','rgba(239,68,68,0.85)','rgba(16,185,129,0.85)']:'rgba(99,102,241,0.85)',borderWidth:1,borderRadius:isPie?0:6}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:isPie,position:'bottom',labels:{font:{size:9},boxWidth:10}},tooltip:{callbacks:{label:c=>`비율: ${c.formattedValue}%`}}},scales:isPie?{}:{y:{min:0,max:100,ticks:{callback:v=>v+"%",font:{size:8}}},x:{ticks:{font:{size:8}}}}}}));
+    });
+  }
+
+  function switchFacilityReport(catId){
+    state.facilityReportCategory=catId;
+    document.querySelectorAll(".f-rep-tab-btn").forEach(b=>{b.className="f-rep-tab-btn px-3 py-2 text-xs font-bold rounded-xl text-slate-600 whitespace-nowrap";});
+    const ab=document.getElementById(`f-rep-nav-${catId}`);
+    if(ab)ab.className="f-rep-tab-btn px-3 py-2 text-xs font-bold rounded-xl text-indigo-600 bg-white shadow-sm whitespace-nowrap";
+    renderFacilityReport();
+  }
+
+  function renderFacilityReport(){
+    const container=document.getElementById("facility-report-document");if(!container)return;
+    const evCount=state.residents.filter(r=>isEvaluationFinished(r.id)).length;
+    if(evCount===0){container.innerHTML=`<div class="text-center py-8 text-slate-400 text-sm"><p class="mb-1">평가 데이터가 없습니다.</p><p class="text-xs">거주인 평가 완료 후 확인하세요.</p></div>`;return;}
+    const cat=state.facilityReportCategory;
+    function getP(qId,val){const l=state.residents.filter(r=>isEvaluationFinished(r.id));const m=l.filter(r=>state.evaluations[r.id].scores[qId]===val);return((m.length/l.length)*100).toFixed(1);}
+    let html='';
+    const titles={eating:'🍚 식사 종합 평가서',snacking:'🍪 간식 종합 평가서',mobility:'🦽 이동 종합 평가서',water:'💧 물(수분) 종합 평가서'};
+    html+=`<div class="border-b-2 border-slate-700 pb-2 mb-4 flex justify-between items-center"><h2 class="text-sm font-bold text-slate-900">${titles[cat]}</h2><span class="text-[10px] text-slate-400">${evCount}명 대상</span></div><div class="text-xs leading-relaxed text-slate-700 space-y-4">`;
+    if(cat==='eating'){
+      html+=`<div class="bg-indigo-50/60 p-3 rounded-xl border-l-4 border-indigo-600 text-[11px] font-semibold">연하 보조식(다진식/갈아서)이 주를 이루며, 직원의 1:1 보조 하 식사 지원이 많습니다.</div>`;
+      html+=`<p><strong>식사 자립도:</strong> 스스로 먹는 비율 <strong class="text-indigo-600">${getP('eat_01','opt1')}%</strong>, 가벼운 보조 필요 <strong class="text-indigo-600">${getP('eat_01','opt2')}%</strong></p>`;
+      html+=`<p><strong>반찬 형태:</strong> 다진 반찬(가위질) 제공 비율 <strong class="text-indigo-600">${getP('eat_06','opt2')}%</strong></p>`;
+      html+=`<p><strong>식사 장소:</strong> 정형의자/휠체어 착석 비율 <strong class="text-indigo-600">${getP('eat_04','opt3')}%</strong></p>`;
+    }else if(cat==='snacking'){
+      html+=`<div class="bg-indigo-50/60 p-3 rounded-xl border-l-4 border-indigo-600 text-[11px] font-semibold">고체 간식보다 액체 간식 섭취 시 높은 수준의 지원이 필요합니다.</div>`;
+      html+=`<p><strong>고체 간식 자립:</strong> 잘 먹음 <strong class="text-indigo-600">${getP('snack_01','opt1')}%</strong>, 도움 필요 <strong class="text-indigo-600">${getP('snack_01','opt2')}%</strong></p>`;
+      html+=`<p><strong>과일 간식:</strong> 믹서에 갈아서 제공 <strong class="text-indigo-600">${getP('snack_03','opt2')}%</strong></p>`;
+      html+=`<p><strong>간식 자율선택:</strong> 선택 불가 <strong class="text-indigo-600">${getP('snack_08','opt2')}%</strong></p>`;
+    }else if(cat==='mobility'){
+      html+=`<div class="bg-indigo-50/60 p-3 rounded-xl border-l-4 border-indigo-600 text-[11px] font-semibold">네발 기기 및 휠체어 이동이 주를 이루며, 이승 시 낙상 예방 주의가 요망됩니다.</div>`;
+      html+=`<p><strong>이동 자립:</strong> 자력 이동 가능 <strong class="text-indigo-600">${getP('mob_01','opt1')}%</strong></p>`;
+      html+=`<p><strong>이동 수단:</strong> 네발기기+휠체어 <strong class="text-indigo-600">${getP('mob_02','opt1')}%</strong></p>`;
+      html+=`<p><strong>휠체어 발판:</strong> 타인이 제거해줘야 함 <strong class="text-indigo-600">${getP('mob_07','opt2')}%</strong></p>`;
+    }else if(cat==='water'){
+      html+=`<div class="bg-indigo-50/60 p-3 rounded-xl border-l-4 border-indigo-600 text-[11px] font-semibold">탈수 방지를 위해 1,000ml 이상 수분 공급이 격려되고 있습니다.</div>`;
+      html+=`<p><strong>자립 음용:</strong> 스스로 잘 마심 <strong class="text-indigo-600">${getP('wat_02','opt1')}%</strong></p>`;
+      html+=`<p><strong>점증제 사용:</strong> 토로미 혼합 <strong class="text-indigo-600">${getP('wat_05','opt2')}%</strong></p>`;
+      html+=`<p><strong>하루 목표량:</strong> 1000~1500ml 범위 <strong class="text-indigo-600">${getP('wat_06','opt3')}%</strong></p>`;
+    }
+    html+='</div>';
+    container.innerHTML=html;
+      }
+
+  function switchQuestionsCategory(catId){
+    state.questionsCategory=catId;
+    document.querySelectorAll(".q-tab-btn").forEach(b=>{b.className="q-tab-btn px-3 py-2 text-xs font-bold rounded-xl text-slate-600 whitespace-nowrap";});
+    const ab=document.getElementById(`q-nav-${catId}`);
+    if(ab)ab.className="q-tab-btn px-3 py-2 text-xs font-bold rounded-xl text-indigo-600 bg-white shadow-sm whitespace-nowrap";
+    renderQuestionsConfig();
+  }
+
+  function renderQuestionsConfig(){
+    const container=document.getElementById("questions-config-list");if(!container)return;
+    container.innerHTML="";
+    state.questions.filter(q=>q.category===state.questionsCategory).forEach(q=>{
+      const card=document.createElement("div");
+      card.className="p-3 border border-slate-200 rounded-2xl bg-white space-y-2.5";
+      let opHtml="";
+      q.options.forEach((opt,i)=>{
+        opHtml+=`<div class="bg-slate-50 rounded-xl p-2.5 space-y-1.5">
+          <p class="text-[9px] font-bold text-slate-400">옵션 ${i+1}</p>
+          <input type="text" id="opt_lbl_${q.id}_${opt.value}" value="${opt.label}" placeholder="라벨명" class="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-xs bg-white">
+          <input type="text" id="opt_tmp_${q.id}_${opt.value}" value="${opt.template}" placeholder="결과지 줄글 템플릿" class="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-xs bg-white">
+        </div>`;
+      });
+      card.innerHTML=`
+        <div class="flex items-center gap-2">
+          <span class="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded font-bold">${q.categoryLabel} Q${q.number}</span>
+        </div>
+        <div>
+          <label class="text-[10px] font-bold text-slate-500 block mb-1">문항 질문</label>
+          <input type="text" id="q_title_${q.id}" value="${q.title}" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs bg-slate-50">
+        </div>
+        <div>
+          <label class="text-[10px] font-bold text-slate-500 block mb-1">설명 문구</label>
+          <input type="text" id="q_desc_${q.id}" value="${q.description}" class="w-full border border-slate-200 rounded-xl px-3 py-2 text-xs bg-slate-50">
+        </div>
+        <div class="space-y-2">
+          <p class="text-[10px] font-bold text-slate-500">객관식 보기 및 템플릿</p>
+          ${opHtml}
+        </div>`;
+      container.appendChild(card);
+    });
+  }
+
+  async function saveCustomQuestions(){
+    state.questions.forEach(q=>{
+      const t=document.getElementById(`q_title_${q.id}`);const d=document.getElementById(`q_desc_${q.id}`);
+      if(t&&d){q.title=t.value.trim();q.description=d.value.trim();}
+      q.options.forEach(opt=>{
+        const l=document.getElementById(`opt_lbl_${q.id}_${opt.value}`);const tm=document.getElementById(`opt_tmp_${q.id}_${opt.value}`);
+        if(l&&tm){opt.label=l.value.trim();opt.template=tm.value.trim();}
+      });
+    });
+    // 로컬 저장
+    window.QuestionsManager.saveQuestions(state.questions);
+    // Firebase 동기화 (다른 기기에도 자동 반영)
+    if(window._fb){
+      try{
+        setSyncStatus('loading');
+        await window._fb.saveQuestions(state.questions);
+        setSyncStatus('ok');
+        alert("저장 완료! 다른 기기에도 자동 반영됩니다 ✅");
+      }catch(e){
+        setSyncStatus('error');
+        alert("로컬 저장은 됐지만 Firebase 동기화 실패: " + e.message);
+      }
+    } else {
+      alert("저장되었습니다.");
+    }
+  }
+
+  function resetQuestionsToDefault(){
+    if(confirm("기본 질문셋으로 초기화하시겠습니까?")){
+      state.questions=window.QuestionsManager.resetQuestions();
+      alert("초기화 완료");switchQuestionsCategory('eating');
+    }
+  }
+
+  function updateGlobalStats(){
+    const total=state.residents.length;
+    const done=state.residents.filter(r=>isEvaluationFinished(r.id)).length;
+    document.getElementById("stat-total-residents").innerText=total;
+    document.getElementById("stat-eval-completed").innerText=done;
+    document.getElementById("stat-eval-pending").innerText=total-done;
+    if(done===0){document.getElementById("stat-health-good").innerText="0%";return;}
+    const good=state.residents.filter(r=>isEvaluationFinished(r.id)&&(r.health==='good'||r.health==='very_good')).length;
+    document.getElementById("stat-health-good").innerText=`${((good/done)*100).toFixed(0)}%`;
+  }
+
+  function exportToExcel(){
+    const list=state.residents.filter(r=>isEvaluationFinished(r.id));
+    if(list.length===0){alert("평가 완료 대상자가 없습니다.");return;}
+    const wb=XLSX.utils.book_new();
+    const hdr=["성명","성별","생년월일","장애유형","건강상태","생활실","특이사항","총점(114)","식사(30)","간식(30)","이동(30)","물(24)","종합소견"];
+    const rows=[hdr];
+    list.forEach(r=>{
+      const e=calculateCategoryScore(r.id,'eating'),s=calculateCategoryScore(r.id,'snacking'),m=calculateCategoryScore(r.id,'mobility'),w=calculateCategoryScore(r.id,'water');
+      const ev=state.evaluations[r.id];
+      rows.push([r.name,r.gender,r.birthdate||"",r.diagnosis||"",r.health||"",r.room||"",r.notes||"",e+s+m+w,e,s,m,w,ev.opinion||""]);
+    });
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(rows),"거주인 점수대장");
+    XLSX.writeFile(wb,`ADL_평가결과_${new Date().toISOString().slice(0,10)}.xlsx`);
+  }
+
+  function exportBackupData(){
+    const blob=new Blob([JSON.stringify({residents:state.residents,evaluations:state.evaluations,questions:state.questions},null,2)],{type:"application/json"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");a.href=url;a.download=`ADL_Backup_${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(url);
+  }
+  function triggerBackupImport(){document.getElementById("backup-file-input").click();}
+  function importBackupData(e){
+    const file=e.target.files[0];if(!file)return;
+    if(!confirm("현재 데이터를 백업 파일로 덮어씁니다. 진행하시겠습니까?"))return;
+    const reader=new FileReader();
+    reader.onload=function(ev){
+      try{
+        const db=JSON.parse(ev.target.result);
+        if(db.residents&&db.evaluations){
+          state.residents=db.residents;state.evaluations=db.evaluations;
+          if(db.questions){state.questions=db.questions;window.QuestionsManager.saveQuestions(db.questions);}
+          saveResidentsState();saveEvaluationsState();
+          alert("복원 완료!");state.currentResidentId=null;loadDatabase();switchTab('dashboard');
+        }else alert("파일 포맷이 맞지 않습니다.");
+      }catch(err){alert("파싱 실패");}
+    };reader.readAsText(file);
+  }
+  function clearAllData(){
+    if(confirm("모든 데이터를 삭제하시겠습니까?")){
+      localStorage.clear();state.residents=[];state.evaluations={};state.currentResidentId=null;
+      loadDatabase();alert("초기화 완료");switchTab('dashboard');
+    }
+  }
+
+  function generateDemoData(){
+    if(state.residents.length>0&&!confirm("기존 데이터가 초기화되고 54명 데모 데이터로 덮어씁니다. 진행하시겠습니까?"))return;
+    const demoR=[],demoE={};
+    const gangId="res_demo_gang";
+    demoR.push({id:gangId,name:"강건",gender:"남",birthdate:"1989-10-10",diagnosis:"뇌병변",health:"good",notes:"네발 기기로 원내 이동함."});
+    const gangScores={"eat_01":"opt1","eat_02":"opt1","eat_03":"opt2","eat_04":"opt1","eat_05":"opt1","eat_06":"opt2","eat_07":"opt2","eat_08":"opt1","eat_09":"opt1","eat_10":"opt1","snack_01":"opt1","snack_02":"opt1","snack_03":"opt1","snack_04":"opt1","snack_05":"opt2","snack_06":"opt1","snack_07":"opt1","snack_08":"opt2","snack_09":"opt1","snack_10":"opt1","mob_01":"opt1","mob_02":"opt1","mob_03":"opt1","mob_04":"opt1","mob_05":"opt1","mob_06":"opt1","mob_07":"opt2","mob_08":"opt1","mob_09":"opt1","mob_10":"opt1","wat_01":"opt1","wat_02":"opt1","wat_03":"opt1","wat_04":"opt1","wat_05":"opt1","wat_06":"opt3","wat_07":"opt1","wat_08":"opt1"};
+    demoE[gangId]={scores:gangScores,opinion:"스스로 이동이 가능하며 식사, 간식을 원만히 섭취하고 있음.",updatedAt:new Date("2025-11-17").toISOString()};
+    const lns=["김","이","박","최","정","강","조","윤","장","임"],fns=["영수","영희","민수","민지","철수","순이","지훈","지은","성민","성희","태성","미선","정호","은정","진우","서연","도현","하은","예준","지아","우진","수아","현우","지원","준우","소윤","건우","서윤","민재","채원","준서","다은","연우","서현","현서","민호","혜원","태호","경희","종수","미경","영길","옥자","순자","춘자","창식","광태","삼식","두식","길동","의지","재철","희영"],rooms=["햇살방","바람방","하늘방","바다방","산새방","들꽃방"],diags=["뇌병변장애 1급","지적장애 2급","자폐성장애 1급","편마비","파킨슨병","뇌성마비"],hs=["good","very_good","bad","very_bad"];
+    for(let i=0;i<53;i++){
+      const id=`res_demo_${100+i}`;
+      demoR.push({id,name:lns[i%lns.length]+fns[i%fns.length],gender:i%2===0?"남":"여",birthdate:`${1950+(i*7)%50}-${String(1+i%12).padStart(2,'0')}-${String(1+i%28).padStart(2,'0')}`,diagnosis:diags[i%diags.length],room:rooms[i%rooms.length],health:hs[(i*3)%hs.length],notes:""});
+      const scores={};
+      state.questions.forEach(q=>{
+        const r=Math.random()*100;let v="opt1";
+        if(q.id==='snack_01'){v=r<56.6?"opt1":r<94.3?"opt2":"opt3";}
+        else if(q.id==='snack_03'){v=r<81.1?"opt2":r<91.1?"opt3":"opt1";}
+        else if(q.id==='snack_08'){v=r<94.3?"opt2":"opt1";}
+        else{v=r<60?"opt1":r<85?"opt2":r<95?"opt3":"opt4";if(!q.options.some(o=>o.value===v))v=q.options[0].value;}
+        scores[q.id]=v;
+      });
+      demoE[id]={scores,opinion:"",updatedAt:new Date().toISOString()};
+    }
+    state.residents=demoR;state.evaluations=demoE;
+    saveResidentsState();saveEvaluationsState();
+    // 소견 동기화
+    state.residents.forEach(r=>{if(!state.evaluations[r.id].opinion)state.evaluations[r.id].opinion=generateAutoClinicalOpinion(r.id);});
+    saveEvaluationsState();
+    alert("54명 데모 데이터가 생성되었습니다!");
+    state.currentResidentId=null;loadDatabase();switchTab('dashboard');
+  }
+
+  // 전역 바인딩
+  Object.assign(window,{switchTab,filterResidents,setFilterStatus,selectResident,toggleAddResidentModal,saveResidentInfo,openEditResidentModal,deleteResident,switchEvalSubtab,selectQuestionOption,switchCategorySubtab,saveCurrentEvaluation,updateOpinionText,switchStatsCategory,switchFacilityReport,switchQuestionsCategory,saveCustomQuestions,resetQuestionsToDefault,exportToExcel,exportBackupData,triggerBackupImport,importBackupData,clearAllData,generateDemoData,openResidentPanel,closeResidentPanel});
+  </script>
+</body>
+</html>
