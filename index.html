@@ -207,6 +207,19 @@
       async saveQuestions(questions) {
         await setDoc(doc(db, "settings", "questions"), { data: questions, updatedAt: new Date().toISOString() });
       },
+      // 연도별 종합보고서 스냅샷 저장/로드/삭제 (매년 비교분석용)
+      async saveYearlySnapshot(year, data) {
+        await setDoc(doc(db, "yearlyReports", String(year)), data);
+      },
+      async loadYearlySnapshots() {
+        const snap = await getDocs(collection(db, "yearlyReports"));
+        const arr = [];
+        snap.forEach(d => arr.push(d.data()));
+        return arr;
+      },
+      async deleteYearlySnapshot(year) {
+        await deleteDoc(doc(db, "yearlyReports", String(year)));
+      },
       // 전체 데이터 로드 (문항 포함)
       async loadAll() {
         const [resSnap, evalSnap, qSnap] = await Promise.all([
@@ -540,6 +553,9 @@
           <span class="text-sm">📈</span> 영역별 통계
         </h2>
         <div class="flex gap-2">
+          <button onclick="toggleYearlyComparison('stats')" class="px-3 py-2 bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl flex items-center gap-1.5">
+            <span class="text-xs">📊</span> 연도별 비교
+          </button>
           <button id="stats-ai-btn" onclick="generateStatisticsAISummary()" class="px-3 py-2 bg-violet-600 text-white text-xs font-bold rounded-xl flex items-center gap-1.5">
             <span class="text-xs">🤖</span> AI 해석
           </button>
@@ -547,6 +563,11 @@
             <span class="text-xs">🖨️</span> 인쇄
           </button>
         </div>
+      </div>
+      <div id="stats-compare-panel" class="glass-panel rounded-2xl p-4 space-y-3 hidden">
+        <p class="text-xs font-bold text-slate-800 flex items-center gap-1.5"><span>📈</span> 연도별 비교분석 (영역 평균점수)</p>
+        <div id="stats-compare-table"></div>
+        <div id="stats-compare-chart-wrap"></div>
       </div>
       <!-- 통계 카테고리 탭 -->
       <div class="cat-tab-row">
@@ -591,6 +612,20 @@
           <button id="f-rep-nav-mobility" onclick="switchFacilityReport('mobility')" class="f-rep-tab-btn px-3 py-2 text-xs font-bold rounded-xl text-slate-600 whitespace-nowrap">이동</button>
           <button id="f-rep-nav-water" onclick="switchFacilityReport('water')" class="f-rep-tab-btn px-3 py-2 text-xs font-bold rounded-xl text-slate-600 whitespace-nowrap">물(수분)</button>
         </div>
+      </div>
+      <!-- 연도별 저장 / 비교 -->
+      <div class="flex gap-2 no-print">
+        <button onclick="saveCurrentYearReport()" class="flex-1 py-2.5 bg-slate-900 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5">
+          <span class="text-xs">📅</span> 올해 종합보고서 저장
+        </button>
+        <button onclick="toggleYearlyComparison('reports')" class="flex-1 py-2.5 bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5">
+          <span class="text-xs">📊</span> 연도별 비교
+        </button>
+      </div>
+      <div id="reports-compare-panel" class="glass-panel rounded-2xl p-4 space-y-3 hidden">
+        <p class="text-xs font-bold text-slate-800 flex items-center gap-1.5"><span>📈</span> 연도별 비교분석</p>
+        <div id="reports-compare-table"></div>
+        <div id="reports-compare-chart-wrap"></div>
       </div>
       <div id="facility-report-ai-summary" class="glass-panel rounded-2xl p-4 text-xs text-slate-700 leading-relaxed empty:hidden"></div>
       <div class="glass-panel rounded-2xl p-4 border border-slate-200/60 bg-white">
@@ -761,7 +796,8 @@
 
   <script>
   // ======== app.js (모바일 최적화 버전) ========
-  const state={residents:[],evaluations:{},questions:[],currentTab:'dashboard',currentResidentId:null,currentCategorySubtab:'eating',filterStatus:'all',evalSubtab:'write',statsCategory:'eating',facilityReportCategory:'eating',questionsCategory:'eating',charts:[]};
+  const state={residents:[],evaluations:{},questions:[],currentTab:'dashboard',currentResidentId:null,currentCategorySubtab:'eating',filterStatus:'all',evalSubtab:'write',statsCategory:'eating',facilityReportCategory:'eating',questionsCategory:'eating',charts:[],snapshots:[],compareCharts:[]};
+  let _snapshotsLoaded=false;
 
   // 사용자 입력값을 innerHTML에 삽입하기 전 XSS 방지용 이스케이프
   const HTML_ESCAPE_MAP={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
@@ -1482,6 +1518,115 @@
     container.innerHTML=html;
       }
 
+  // ===== 연도별 종합보고서 스냅샷 & 비교분석 =====
+  async function ensureSnapshotsLoaded(){
+    if(_snapshotsLoaded||!window._fb)return;
+    try{state.snapshots=await window._fb.loadYearlySnapshots();_snapshotsLoaded=true;}
+    catch(e){console.error('연도별 보고서 로드 실패:',e);}
+  }
+
+  function computeYearlySnapshot(year){
+    const list=state.residents.filter(r=>isEvaluationFinished(r.id));
+    const cats=['eating','snacking','mobility','water'];
+    const categoryAverages={};
+    cats.forEach(cat=>{
+      categoryAverages[cat]=list.length?+((list.reduce((s,r)=>s+calculateCategoryScore(r.id,cat),0))/list.length).toFixed(1):0;
+    });
+    const totalAverage=+(cats.reduce((s,c)=>s+categoryAverages[c],0)).toFixed(1);
+    // 통계 비교용 문항별 응답 분포(%)
+    const statMap={eating:['eat_01','eat_03','eat_04','eat_06'],snacking:['snack_01','snack_02','snack_03','snack_04'],mobility:['mob_01','mob_02','mob_04','mob_07'],water:['wat_01','wat_02','wat_04','wat_05']};
+    const distributions={};
+    cats.forEach(cat=>{
+      distributions[cat]={};
+      (statMap[cat]||[]).forEach(qId=>{
+        const q=state.questions.find(x=>x.id===qId);if(!q)return;
+        const dist={};q.options.forEach(o=>{dist[o.label]=0;});
+        list.forEach(r=>{const v=state.evaluations[r.id].scores[qId];const o=q.options.find(x=>x.value===v);if(o)dist[o.label]++;});
+        Object.keys(dist).forEach(k=>{dist[k]=list.length?+((dist[k]/list.length)*100).toFixed(1):0;});
+        distributions[cat][qId]={title:q.title,dist};
+      });
+    });
+    return {year:String(year),savedAt:new Date().toISOString(),residentCount:list.length,categoryAverages,totalAverage,distributions};
+  }
+
+  async function saveCurrentYearReport(){
+    await ensureSnapshotsLoaded();
+    const list=state.residents.filter(r=>isEvaluationFinished(r.id));
+    if(list.length===0){alert('평가 완료된 거주인이 없어 저장할 수 없습니다.');return;}
+    const input=prompt('저장할 연도를 입력하세요 (예: 2026)',String(new Date().getFullYear()));
+    if(!input)return;
+    const year=String(parseInt(input,10));
+    if(!/^\d{4}$/.test(year)){alert('연도 형식이 올바르지 않습니다 (예: 2026).');return;}
+    if(state.snapshots.some(s=>String(s.year)===year)&&!confirm(year+'년 보고서가 이미 저장되어 있습니다. 최신 데이터로 덮어쓰시겠습니까?'))return;
+    const snap=computeYearlySnapshot(year);
+    state.snapshots=state.snapshots.filter(s=>String(s.year)!==year);
+    state.snapshots.push(snap);
+    if(window._fb){
+      try{setSyncStatus('loading');await window._fb.saveYearlySnapshot(year,snap);setSyncStatus('ok');}
+      catch(e){setSyncStatus('error');alert('저장 실패: '+e.message);return;}
+    }
+    alert(`${year}년 종합보고서(${list.length}명)가 저장되었습니다. '연도별 비교'에서 확인하세요.`);
+    const panel=document.getElementById('reports-compare-panel');
+    if(panel&&!panel.classList.contains('hidden'))renderYearlyComparison('reports');
+  }
+
+  async function deleteYearlyReport(year){
+    if(!confirm(year+'년 저장된 보고서를 삭제하시겠습니까?'))return;
+    state.snapshots=state.snapshots.filter(s=>String(s.year)!==String(year));
+    if(window._fb){try{await window._fb.deleteYearlySnapshot(year);}catch(e){console.error(e);}}
+    renderYearlyComparison(state.currentTab==='statistics'?'stats':'reports');
+  }
+
+  function toggleYearlyComparison(prefix){
+    const panel=document.getElementById(prefix+'-compare-panel');if(!panel)return;
+    const willShow=panel.classList.contains('hidden');
+    panel.classList.toggle('hidden',!willShow);
+    if(willShow)renderYearlyComparison(prefix);
+  }
+
+  async function renderYearlyComparison(prefix){
+    const tableEl=document.getElementById(prefix+'-compare-table');
+    const chartWrap=document.getElementById(prefix+'-compare-chart-wrap');
+    if(!tableEl)return;
+    tableEl.innerHTML='<p class="text-xs text-slate-400 text-center py-3">불러오는 중...</p>';
+    await ensureSnapshotsLoaded();
+    const snaps=[...state.snapshots].sort((a,b)=>String(a.year).localeCompare(String(b.year)));
+    if(snaps.length===0){
+      tableEl.innerHTML='<p class="text-xs text-slate-400 text-center py-4">저장된 연도별 보고서가 없습니다.<br>종합보고서 탭의 "📅 올해 저장" 버튼으로 먼저 저장하세요.</p>';
+      if(chartWrap)chartWrap.innerHTML='';
+      return;
+    }
+    const catLabels={eating:'식사',snacking:'간식',mobility:'이동',water:'물'};
+    const cats=['eating','snacking','mobility','water'];
+    let html='<div class="overflow-x-auto"><table class="w-full text-xs border-collapse whitespace-nowrap"><thead><tr class="bg-slate-100">';
+    html+='<th class="border border-slate-300 p-2">연도</th><th class="border border-slate-300 p-2">완료<br>인원</th>';
+    cats.forEach(c=>{html+=`<th class="border border-slate-300 p-2">${catLabels[c]}</th>`;});
+    html+='<th class="border border-slate-300 p-2">총점평균<br><span class="text-[9px] text-slate-400">/114</span></th></tr></thead><tbody>';
+    snaps.forEach(s=>{
+      html+=`<tr class="text-center"><td class="border border-slate-300 p-2 font-bold">${escapeHtml(String(s.year))}년 <button onclick="deleteYearlyReport('${escapeHtml(String(s.year))}')" class="text-rose-400 text-[10px] ml-0.5 no-print">✕</button></td>`;
+      html+=`<td class="border border-slate-300 p-2">${s.residentCount??0}</td>`;
+      cats.forEach(c=>{html+=`<td class="border border-slate-300 p-2">${s.categoryAverages?.[c]??0}</td>`;});
+      html+=`<td class="border border-slate-300 p-2 font-bold text-indigo-600">${s.totalAverage??0}</td></tr>`;
+    });
+    html+='</tbody></table></div>';
+    // 전년 대비 증감 (2개 이상일 때)
+    if(snaps.length>=2){
+      const prev=snaps[snaps.length-2],cur=snaps[snaps.length-1];
+      const diff=(+cur.totalAverage-+prev.totalAverage).toFixed(1);
+      const up=diff>0;
+      html+=`<p class="text-[11px] mt-2 ${up?'text-emerald-600':diff<0?'text-rose-600':'text-slate-500'}">${prev.year}년 대비 ${cur.year}년 총점평균 ${up?'▲ +'+diff:diff<0?'▼ '+diff:'변동 없음'}</p>`;
+    }
+    tableEl.innerHTML=html;
+    if(chartWrap){
+      chartWrap.innerHTML=`<div class="chart-wrapper" style="height:260px"><canvas id="${prefix}-compare-canvas"></canvas></div>`;
+      state.compareCharts.forEach(c=>c.destroy());state.compareCharts=[];
+      const ctx=document.getElementById(`${prefix}-compare-canvas`).getContext('2d');
+      const colors=['rgba(99,102,241,0.85)','rgba(16,185,129,0.85)','rgba(239,68,68,0.85)','rgba(245,158,11,0.85)','rgba(59,130,246,0.85)','rgba(168,85,247,0.85)'];
+      const datasets=snaps.map((s,i)=>({label:s.year+'년',data:cats.map(c=>s.categoryAverages?.[c]??0),backgroundColor:colors[i%colors.length],borderRadius:4}));
+      state.compareCharts.push(new Chart(ctx,{type:'bar',data:{labels:['식사(30)','간식(30)','이동(30)','물(24)'],datasets},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{font:{size:10},boxWidth:12}},title:{display:true,text:'영역별 평균점수 연도 비교',font:{size:11}}},scales:{y:{beginAtZero:true,ticks:{font:{size:9}}},x:{ticks:{font:{size:9}}}}}}));
+    }
+  }
+
   async function generateFacilityReportAISummary(){
     const cat=state.facilityReportCategory;
     const container=document.getElementById('facility-report-ai-summary');if(!container)return;
@@ -1720,7 +1865,7 @@
   }
 
   // 전역 바인딩
-  Object.assign(window,{switchTab,filterResidents,setFilterStatus,selectResident,toggleAddResidentModal,saveResidentInfo,openEditResidentModal,deleteResident,switchEvalSubtab,selectQuestionOption,switchCategorySubtab,saveCurrentEvaluation,updateOpinionText,switchStatsCategory,switchFacilityReport,switchQuestionsCategory,saveCustomQuestions,resetQuestionsToDefault,exportToExcel,exportBackupData,triggerBackupImport,importBackupData,clearAllData,openResidentPanel,closeResidentPanel,regenerateOpinionWithAI,regenerateReportDescriptionsWithAI,generateStatisticsAISummary,generateFacilityReportAISummary,updateEtcText,addQuestion,deleteQuestion,addOption,deleteOption});
+  Object.assign(window,{switchTab,filterResidents,setFilterStatus,selectResident,toggleAddResidentModal,saveResidentInfo,openEditResidentModal,deleteResident,switchEvalSubtab,selectQuestionOption,switchCategorySubtab,saveCurrentEvaluation,updateOpinionText,switchStatsCategory,switchFacilityReport,switchQuestionsCategory,saveCustomQuestions,resetQuestionsToDefault,exportToExcel,exportBackupData,triggerBackupImport,importBackupData,clearAllData,openResidentPanel,closeResidentPanel,regenerateOpinionWithAI,regenerateReportDescriptionsWithAI,generateStatisticsAISummary,generateFacilityReportAISummary,updateEtcText,addQuestion,deleteQuestion,addOption,deleteOption,saveCurrentYearReport,toggleYearlyComparison,renderYearlyComparison,deleteYearlyReport});
   </script>
 </body>
 </html>
