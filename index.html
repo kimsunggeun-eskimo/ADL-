@@ -469,14 +469,9 @@
               <span class="inline-block w-2 h-2 bg-emerald-500 rounded-full mr-1"></span>
               종합소견을 탭하여 수정할 수 있습니다.
             </p>
-            <div class="flex gap-2">
-              <button id="ai-desc-btn" onclick="regenerateReportDescriptionsWithAI()" class="px-3 py-2 bg-violet-600 text-white text-xs font-bold rounded-xl flex items-center gap-1.5">
-                <span class="text-xs">🤖</span> AI로 문장 다듬기
-              </button>
-              <button onclick="window.print()" class="px-3 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl flex items-center gap-1.5">
-                <span class="text-xs">🖨️</span> 인쇄
-              </button>
-            </div>
+            <button onclick="window.print()" class="px-3 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl flex items-center gap-1.5">
+              <span class="text-xs">🖨️</span> 인쇄
+            </button>
           </div>
           <div id="a4-report-paper" class="bg-white rounded-sm text-black leading-relaxed text-xs">
             <div class="space-y-4">
@@ -557,9 +552,6 @@
           <button onclick="toggleYearlyComparison('stats')" class="px-3 py-2 bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-bold rounded-xl flex items-center gap-1.5">
             <span class="text-xs">📊</span> 연도별 비교
           </button>
-          <button id="stats-ai-btn" onclick="generateStatisticsAISummary()" class="px-3 py-2 bg-violet-600 text-white text-xs font-bold rounded-xl flex items-center gap-1.5">
-            <span class="text-xs">🤖</span> AI 해석
-          </button>
           <button onclick="window.print()" class="px-3 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl flex items-center gap-1.5">
             <span class="text-xs">🖨️</span> 인쇄
           </button>
@@ -579,7 +571,6 @@
           <button id="stats-nav-water" onclick="switchStatsCategory('water')" class="stats-tab-btn px-4 py-2 text-xs font-bold rounded-xl text-slate-600">💧 물</button>
         </div>
       </div>
-      <div id="stats-ai-summary" class="glass-panel rounded-2xl p-4 text-xs text-slate-700 leading-relaxed empty:hidden"></div>
       <div id="stats-empty-state" class="glass-panel rounded-2xl p-8 text-center hidden">
         <p class="text-sm font-bold text-slate-700">평가 완료 데이터 없음</p>
         <p class="text-xs text-slate-400 mt-1">1명 이상 38문항 완료 시 차트 생성</p>
@@ -594,9 +585,6 @@
           <span class="text-sm">📄</span> 종합 보고서
         </h2>
         <div class="flex gap-2">
-          <button id="facility-ai-btn" onclick="generateFacilityReportAISummary()" class="px-3 py-2 bg-violet-600 text-white text-xs font-bold rounded-xl flex items-center gap-1.5">
-            <span class="text-xs">🤖</span> AI 요약
-          </button>
           <button onclick="window.print()" class="px-3 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl flex items-center gap-1.5">
             <span class="text-xs">🖨️</span> 인쇄
           </button>
@@ -628,7 +616,6 @@
         <div id="reports-compare-table"></div>
         <div id="reports-compare-chart-wrap"></div>
       </div>
-      <div id="facility-report-ai-summary" class="glass-panel rounded-2xl p-4 text-xs text-slate-700 leading-relaxed empty:hidden"></div>
       <div class="glass-panel rounded-2xl p-4 border border-slate-200/60 bg-white">
         <div id="facility-report-document"></div>
       </div>
@@ -804,26 +791,6 @@
   const HTML_ESCAPE_MAP={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
   function escapeHtml(str){
     return String(str??"").replace(/[&<>"']/g,c=>HTML_ESCAPE_MAP[c]);
-  }
-
-  // Gemini API 프록시 호출 (API 키는 Netlify Function 안에서만 사용됨)
-  const GEMINI_ENDPOINT="/.netlify/functions/gemini-generate";
-  async function callGeminiAPI(prompt){
-    let res;
-    try{
-      res=await fetch(GEMINI_ENDPOINT,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt})});
-    }catch(e){
-      throw new Error("AI 서버에 연결할 수 없습니다. 네트워크를 확인해주세요.");
-    }
-    if(res.status===404){
-      throw new Error("AI 기능이 아직 배포되지 않았습니다 (Netlify Functions 설정 필요).");
-    }
-    if(!res.ok){
-      const err=await res.json().catch(()=>({}));
-      throw new Error(err.error||`AI 요청 실패 (${res.status})`);
-    }
-    const data=await res.json();
-    return (data.text||"").trim();
   }
 
   document.addEventListener("DOMContentLoaded",()=>{
@@ -1228,7 +1195,6 @@
     const resId=state.currentResidentId;if(!resId)return;
     if(!state.evaluations[resId])state.evaluations[resId]={scores:{},opinion:""};
     state.evaluations[resId].scores[qId]=value;
-    delete state.evaluations[resId].aiDescriptions; // 답변이 바뀌면 캐시된 AI 문장은 더 이상 정확하지 않으므로 폐기
     element.parentElement.querySelectorAll(".custom-radio").forEach(l=>l.classList.remove("active-option"));
     element.classList.add("active-option");
     const radio=element.querySelector("input[type='radio']");if(radio)radio.checked=true;
@@ -1243,7 +1209,6 @@
     if(!state.evaluations[resId])state.evaluations[resId]={scores:{},opinion:""};
     if(!state.evaluations[resId].etcText)state.evaluations[resId].etcText={};
     state.evaluations[resId].etcText[qId]=val;
-    delete state.evaluations[resId].aiDescriptions;
   }
 
   function updateSubtabsProgress(resId){
@@ -1303,62 +1268,14 @@
       const score=calculateCategoryScore(resId,cat);
       scoreEl.innerText=`(${score}/${max})`;
       if(!done){descEl.innerHTML=`<span class='text-red-400 italic text-[10px]'>미완료 문항이 있습니다.</span>`;return;}
-      const sentences=buildCategorySentences(resId,cat);
-      descEl.innerText=ev.aiDescriptions?.[cat]||sentences.join(" ");
+      descEl.innerText=buildCategorySentences(resId,cat).join(" ");
     });
     const opEl=document.getElementById("rep-overall-clinical-opinion");
     if(done){
       if(!ev.opinion)ev.opinion=generateAutoClinicalOpinion(resId);
-      opEl.innerHTML=`<div class="flex justify-end mb-1 no-print"><button id="ai-opinion-btn" onclick="regenerateOpinionWithAI()" class="px-2 py-1 bg-violet-600 text-white text-[10px] font-bold rounded-lg">🤖 AI로 다시쓰기</button></div><textarea onblur="updateOpinionText(this.value)" class="w-full bg-transparent border-0 text-[10px] text-slate-800 p-0 focus:outline-none leading-relaxed" rows="5">${escapeHtml(ev.opinion)}</textarea>`;
+      opEl.innerHTML=`<textarea onblur="updateOpinionText(this.value)" class="w-full bg-transparent border-0 text-[10px] text-slate-800 p-0 focus:outline-none leading-relaxed" rows="5">${escapeHtml(ev.opinion)}</textarea>`;
     }else{
       opEl.innerText="평가 대기 중...";
-    }
-  }
-
-  async function regenerateOpinionWithAI(){
-    const resId=state.currentResidentId;if(!resId)return;
-    const ev=state.evaluations[resId];if(!ev)return;
-    const r=state.residents.find(x=>x.id===resId);if(!r)return;
-    const btn=document.getElementById('ai-opinion-btn');
-    if(btn){btn.disabled=true;btn.innerText='생성 중...';}
-    try{
-      const baseline=ev.opinion||generateAutoClinicalOpinion(resId);
-      const prompt=`당신은 중증장애인 거주시설의 작업치료사입니다. 아래는 규칙 기반으로 자동 작성된 초안 임상 소견입니다. 사실관계(점수, 진단명, 총점)는 그대로 유지하되 더 자연스럽고 전문적인 임상 소견 문체로 다시 작성해주세요. 300자 내외, 존댓말, 과장 없이 작성하고 다른 설명 없이 소견 본문만 출력하세요.\n\n대상자: ${r.name} (${r.diagnosis||'미상'})\n초안:\n${baseline}`;
-      const text=await callGeminiAPI(prompt);
-      if(text){
-        updateOpinionText(text);
-        renderIndividualReportPaper();
-      }
-    }catch(e){
-      alert('AI 생성에 실패했습니다: '+e.message);
-    }finally{
-      const btn2=document.getElementById('ai-opinion-btn');
-      if(btn2){btn2.disabled=false;btn2.innerText='🤖 AI로 다시쓰기';}
-    }
-  }
-
-  async function regenerateReportDescriptionsWithAI(){
-    const resId=state.currentResidentId;if(!resId)return;
-    if(!isEvaluationFinished(resId)){alert('평가가 완료된 후에 사용할 수 있습니다.');return;}
-    const ev=state.evaluations[resId];
-    const labels={eating:'식사',snacking:'간식',mobility:'이동',water:'물(수분)'};
-    const btn=document.getElementById('ai-desc-btn');
-    if(btn){btn.disabled=true;btn.innerText='생성 중...';}
-    try{
-      const cats=['eating','snacking','mobility','water'];
-      const results=await Promise.all(cats.map(async cat=>{
-        const draft=buildCategorySentences(resId,cat).join(' ');
-        const prompt=`당신은 작업치료사입니다. 아래는 '${labels[cat]}' 영역 ADL 평가 결과를 규칙 기반으로 이어붙인 초안 문장입니다. 사실관계(구체적 수행 수준, 필요한 지원 정도)는 절대 바꾸지 말고, 자연스러운 하나의 문단(2~3문장)으로 다듬어 주세요. 다른 설명 없이 다듬은 문단만 출력하세요.\n\n초안: ${draft}`;
-        return [cat,await callGeminiAPI(prompt)];
-      }));
-      ev.aiDescriptions=Object.fromEntries(results);
-      saveEvaluationsState(resId);
-      renderIndividualReportPaper();
-    }catch(e){
-      alert('AI 다듬기에 실패했습니다: '+e.message);
-    }finally{
-      const btn2=document.getElementById('ai-desc-btn');
-      if(btn2){btn2.disabled=false;btn2.innerText='🤖 AI로 문장 다듬기';}
     }
   }
 
@@ -1402,7 +1319,6 @@
     document.querySelectorAll(".stats-tab-btn").forEach(b=>{b.className="stats-tab-btn px-4 py-2 text-xs font-bold rounded-xl text-slate-600";});
     const ab=document.getElementById(`stats-nav-${catId}`);
     if(ab)ab.className="stats-tab-btn px-4 py-2 text-xs font-bold rounded-xl text-indigo-600 bg-white shadow-sm";
-    const aiEl=document.getElementById("stats-ai-summary");if(aiEl)aiEl.innerText=""; // 카테고리가 바뀌면 이전 AI 해석은 더 이상 맞지 않으므로 비움
     renderStatisticsCharts();
   }
 
@@ -1430,41 +1346,11 @@
     });
   }
 
-  async function generateStatisticsAISummary(){
-    const cat=state.statsCategory;
-    const container=document.getElementById('stats-ai-summary');if(!container)return;
-    const list=state.residents.filter(r=>isEvaluationFinished(r.id));
-    if(list.length===0){alert('평가 완료 데이터가 없습니다.');return;}
-    const btn=document.getElementById('stats-ai-btn');
-    if(btn){btn.disabled=true;btn.innerText='생성 중...';}
-    container.innerText='AI 해석 생성 중...';
-    try{
-      const map={eating:['eat_01','eat_03','eat_04','eat_06'],snacking:['snack_01','snack_02','snack_03','snack_04'],mobility:['mob_01','mob_02','mob_04','mob_07'],water:['wat_01','wat_02','wat_04','wat_05']};
-      const stats=(map[cat]||[]).map(qId=>{
-        const q=state.questions.find(x=>x.id===qId);if(!q)return'';
-        const counts={};q.options.forEach(o=>{counts[o.label]=0;});
-        list.forEach(r=>{const v=state.evaluations[r.id].scores[qId];const o=q.options.find(x=>x.value===v);if(o)counts[o.label]=(counts[o.label]||0)+1;});
-        const parts=Object.entries(counts).map(([label,c])=>`${label} ${((c/list.length)*100).toFixed(1)}%`).join(', ');
-        return `${q.title}: ${parts}`;
-      }).filter(Boolean).join('\n');
-      const labels={eating:'식사',snacking:'간식',mobility:'이동',water:'물(수분)'};
-      const prompt=`당신은 중증장애인 거주시설의 작업치료사입니다. 아래는 '${labels[cat]}' 영역 통계 차트에 사용된 원본 수치(${list.length}명 대상)입니다. 이 수치를 바탕으로 전체적인 경향을 설명하는 자연스러운 해설(3~5문장)을 작성해주세요. 다른 설명 없이 해설 본문만 출력하세요.\n\n${stats}`;
-      container.innerText=await callGeminiAPI(prompt);
-    }catch(e){
-      container.innerText='';
-      alert('AI 해석 생성 실패: '+e.message);
-    }finally{
-      const btn2=document.getElementById('stats-ai-btn');
-      if(btn2){btn2.disabled=false;btn2.innerText='🤖 AI 해석';}
-    }
-  }
-
   function switchFacilityReport(catId){
     state.facilityReportCategory=catId;
     document.querySelectorAll(".f-rep-tab-btn").forEach(b=>{b.className="f-rep-tab-btn px-3 py-2 text-xs font-bold rounded-xl text-slate-600 whitespace-nowrap";});
     const ab=document.getElementById(`f-rep-nav-${catId}`);
     if(ab)ab.className="f-rep-tab-btn px-3 py-2 text-xs font-bold rounded-xl text-indigo-600 bg-white shadow-sm whitespace-nowrap";
-    const aiEl=document.getElementById("facility-report-ai-summary");if(aiEl)aiEl.innerText=""; // 카테고리가 바뀌면 이전 AI 요약은 더 이상 맞지 않으므로 비움
     renderFacilityReport();
   }
 
@@ -1622,34 +1508,6 @@
       const colors=['rgba(99,102,241,0.85)','rgba(16,185,129,0.85)','rgba(239,68,68,0.85)','rgba(245,158,11,0.85)','rgba(59,130,246,0.85)','rgba(168,85,247,0.85)'];
       const datasets=snaps.map((s,i)=>({label:s.year+'년',data:cats.map(c=>s.categoryAverages?.[c]??0),backgroundColor:colors[i%colors.length],borderRadius:4}));
       state.compareCharts.push(new Chart(ctx,{type:'bar',data:{labels:['식사(30)','간식(30)','이동(30)','물(24)'],datasets},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{font:{size:10},boxWidth:12}},title:{display:true,text:'영역별 평균점수 연도 비교',font:{size:11}}},scales:{y:{beginAtZero:true,ticks:{font:{size:9}}},x:{ticks:{font:{size:9}}}}}}));
-    }
-  }
-
-  async function generateFacilityReportAISummary(){
-    const cat=state.facilityReportCategory;
-    const container=document.getElementById('facility-report-ai-summary');if(!container)return;
-    const list=state.residents.filter(r=>isEvaluationFinished(r.id));
-    if(list.length===0){alert('평가 데이터가 없습니다.');return;}
-    const btn=document.getElementById('facility-ai-btn');
-    if(btn){btn.disabled=true;btn.innerText='생성 중...';}
-    container.innerText='AI 요약 생성 중...';
-    try{
-      function getP(qId,val){const m=list.filter(r=>state.evaluations[r.id].scores[qId]===val);return((m.length/list.length)*100).toFixed(1);}
-      const qMap={eating:['eat_01','eat_04','eat_06','eat_09'],snacking:['snack_01','snack_03','snack_08','snack_10'],mobility:['mob_01','mob_02','mob_07','mob_10'],water:['wat_02','wat_05','wat_06','wat_08']};
-      const stats=(qMap[cat]||[]).map(qId=>{
-        const q=state.questions.find(x=>x.id===qId);if(!q)return'';
-        const parts=q.options.map(o=>`${o.label} ${getP(qId,o.value)}%`).join(', ');
-        return `${q.title}: ${parts}`;
-      }).filter(Boolean).join('\n');
-      const labels={eating:'식사',snacking:'간식',mobility:'이동',water:'물(수분)'};
-      const prompt=`당신은 중증장애인 거주시설의 작업치료사입니다. 아래는 '${labels[cat]}' 영역에 대한 ${list.length}명 거주인의 평가 응답 비율 통계입니다. 이 수치를 바탕으로 시설 전체의 경향과 지원 방향을 설명하는 자연스러운 문단(4~6문장)을 작성해주세요. 수치를 인용하며 서술하되 과장하지 마세요. 다른 설명 없이 문단 본문만 출력하세요.\n\n${stats}`;
-      container.innerText=await callGeminiAPI(prompt);
-    }catch(e){
-      container.innerText='';
-      alert('AI 요약 생성 실패: '+e.message);
-    }finally{
-      const btn2=document.getElementById('facility-ai-btn');
-      if(btn2){btn2.disabled=false;btn2.innerText='🤖 AI 요약';}
     }
   }
 
@@ -1857,7 +1715,7 @@
   }
 
   // 전역 바인딩
-  Object.assign(window,{switchTab,filterResidents,setFilterStatus,selectResident,toggleAddResidentModal,saveResidentInfo,openEditResidentModal,deleteResident,switchEvalSubtab,selectQuestionOption,switchCategorySubtab,saveCurrentEvaluation,updateOpinionText,switchStatsCategory,switchFacilityReport,switchQuestionsCategory,saveCustomQuestions,resetQuestionsToDefault,exportToExcel,exportBackupData,triggerBackupImport,importBackupData,clearAllData,openResidentPanel,closeResidentPanel,regenerateOpinionWithAI,regenerateReportDescriptionsWithAI,generateStatisticsAISummary,generateFacilityReportAISummary,updateEtcText,addQuestion,deleteQuestion,addOption,deleteOption,saveCurrentYearReport,toggleYearlyComparison,renderYearlyComparison,deleteYearlyReport});
+  Object.assign(window,{switchTab,filterResidents,setFilterStatus,selectResident,toggleAddResidentModal,saveResidentInfo,openEditResidentModal,deleteResident,switchEvalSubtab,selectQuestionOption,switchCategorySubtab,saveCurrentEvaluation,updateOpinionText,switchStatsCategory,switchFacilityReport,switchQuestionsCategory,saveCustomQuestions,resetQuestionsToDefault,exportToExcel,exportBackupData,triggerBackupImport,importBackupData,clearAllData,openResidentPanel,closeResidentPanel,updateEtcText,addQuestion,deleteQuestion,addOption,deleteOption,saveCurrentYearReport,toggleYearlyComparison,renderYearlyComparison,deleteYearlyReport});
   </script>
 </body>
 </html>
