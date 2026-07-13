@@ -1202,17 +1202,14 @@
           <div class="text-xs font-semibold text-slate-800">${escapeHtml(opt.label)}</div>
         </label>`;
       });
-      // 기타(직접 입력) 옵션 - 문항관리에서 허용한 문항만
-      let etcHtml="";
-      if(q.allowEtc){
-        const isEtc=checked==='etc';
-        const etcVal=ev.etcText?.[q.id]||"";
-        etcHtml=`<label class="custom-radio ${isEtc?'active-option':''}" onclick="selectQuestionOption('${q.id}','etc',this)">
+      // 기타(직접 입력) 옵션 - 모든 문항에 항상 제공 (선택 시 0점 처리, 적은 내용이 결과지/보고서에 반영)
+      const isEtc=checked==='etc';
+      const etcVal=ev.etcText?.[q.id]||"";
+      const etcHtml=`<label class="custom-radio ${isEtc?'active-option':''}" onclick="selectQuestionOption('${q.id}','etc',this)">
           <input type="radio" name="q_${q.id}" value="etc" ${isEtc?'checked':''}>
           <div class="text-xs font-semibold text-slate-800">기타 (직접 입력)</div>
         </label>
         <textarea id="etc_${q.id}" oninput="updateEtcText('${q.id}',this.value)" placeholder="기타 내용을 직접 입력하세요 (결과지/보고서에 반영됩니다)" rows="2" class="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-xs bg-white resize-none ${isEtc?'':'hidden'}">${escapeHtml(etcVal)}</textarea>`;
-      }
       div.innerHTML=`
         <div>
           <div class="flex items-center gap-2">
@@ -1700,10 +1697,7 @@
           </div>
           ${opHtml}
         </div>
-        <label class="flex items-center gap-2 text-[11px] font-semibold text-slate-600 pt-1 border-t border-slate-100">
-          <input type="checkbox" id="q_etc_${q.id}" ${q.allowEtc?'checked':''} class="w-4 h-4 accent-indigo-600">
-          기타(직접 입력) 허용 — 평가 시 자유롭게 서술한 내용이 결과지·보고서에 반영됩니다
-        </label>`;
+        <p class="text-[10px] text-slate-400 pt-1 border-t border-slate-100">※ '기타(직접 입력)'는 평가 화면 모든 문항에 자동으로 제공됩니다.</p>`;
       container.appendChild(card);
     });
     // 문항 추가 버튼
@@ -1719,8 +1713,6 @@
     state.questions.forEach(q=>{
       const t=document.getElementById(`q_title_${q.id}`);const d=document.getElementById(`q_desc_${q.id}`);
       if(t&&d){q.title=t.value.trim();q.description=d.value.trim();}
-      const etc=document.getElementById(`q_etc_${q.id}`);
-      if(etc)q.allowEtc=etc.checked;
       q.options.forEach(opt=>{
         const l=document.getElementById(`opt_lbl_${q.id}_${opt.value}`);const tm=document.getElementById(`opt_tmp_${q.id}_${opt.value}`);
         if(l&&tm){opt.label=l.value.trim();opt.template=tm.value.trim();}
@@ -1738,7 +1730,6 @@
       id:`custom_${Date.now()}`,
       category:cat,categoryLabel:labels[cat]||cat,number:nextNum,
       title:"새 문항",description:"설명을 입력하세요",
-      allowEtc:true,
       options:[
         {value:"opt1",label:"보기 1",template:""},
         {value:"opt2",label:"보기 2",template:""}
