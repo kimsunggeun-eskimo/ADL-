@@ -1,2 +1,13 @@
 [build]
   publish = "."
+
+# HTML은 항상 최신본을 받도록 캐시하지 않음 (배포 후 새로고침 없이도 즉시 반영)
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
