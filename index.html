@@ -208,6 +208,10 @@
       async saveQuestions(questions) {
         await setDoc(doc(db, "settings", "questions"), { data: questions, updatedAt: new Date().toISOString() });
       },
+      // 종합보고서 직접 수정 내용 저장 (식사/간식/이동/물/전체)
+      async saveFacilityReports(notes) {
+        await setDoc(doc(db, "settings", "facilityReports"), { data: notes, updatedAt: new Date().toISOString() });
+      },
       // 연도별 종합보고서 스냅샷 저장/로드/삭제 (매년 비교분석용)
       async saveYearlySnapshot(year, data) {
         await setDoc(doc(db, "yearlyReports", String(year)), data);
@@ -223,20 +227,22 @@
       },
       // 전체 데이터 로드 (문항 포함)
       async loadAll() {
-        const [resSnap, evalSnap, qSnap] = await Promise.all([
+        const [resSnap, evalSnap, qSnap, frSnap] = await Promise.all([
           getDocs(collection(db, "residents")),
           getDocs(collection(db, "evaluations")),
-          getDoc(doc(db, "settings", "questions"))
+          getDoc(doc(db, "settings", "questions")),
+          getDoc(doc(db, "settings", "facilityReports"))
         ]);
         const residents = [];
         resSnap.forEach(d => residents.push(d.data()));
         const evaluations = {};
         evalSnap.forEach(d => { evaluations[d.id] = d.data(); });
         const questions = qSnap.exists() ? qSnap.data().data : null;
-        return { residents, evaluations, questions };
+        const facilityNotes = frSnap.exists() ? (frSnap.data().data || {}) : null;
+        return { residents, evaluations, questions, facilityNotes };
       },
-      // 실시간 자동 동기화 구독 (거주인 + 평가 + 문항)
-      subscribeAll(onResidents, onEvaluations, onQuestions) {
+      // 실시간 자동 동기화 구독 (거주인 + 평가 + 문항 + 종합보고서)
+      subscribeAll(onResidents, onEvaluations, onQuestions, onFacilityReports) {
         const unsubR = onSnapshot(collection(db, "residents"), snap => {
           const residents = [];
           snap.forEach(d => residents.push(d.data()));
@@ -250,7 +256,10 @@
         const unsubQ = onSnapshot(doc(db, "settings", "questions"), snap => {
           if(snap.exists()) onQuestions(snap.data().data);
         });
-        return () => { unsubR(); unsubE(); unsubQ(); };
+        const unsubF = onSnapshot(doc(db, "settings", "facilityReports"), snap => {
+          if(snap.exists() && onFacilityReports) onFacilityReports(snap.data().data || {});
+        });
+        return () => { unsubR(); unsubE(); unsubQ(); unsubF(); };
       }
     };
 
@@ -605,6 +614,7 @@
           <button id="f-rep-nav-snacking" onclick="switchFacilityReport('snacking')" class="f-rep-tab-btn px-3 py-2 text-xs font-bold rounded-xl text-slate-600 whitespace-nowrap">간식</button>
           <button id="f-rep-nav-mobility" onclick="switchFacilityReport('mobility')" class="f-rep-tab-btn px-3 py-2 text-xs font-bold rounded-xl text-slate-600 whitespace-nowrap">이동</button>
           <button id="f-rep-nav-water" onclick="switchFacilityReport('water')" class="f-rep-tab-btn px-3 py-2 text-xs font-bold rounded-xl text-slate-600 whitespace-nowrap">물(수분)</button>
+          <button id="f-rep-nav-overall" onclick="switchFacilityReport('overall')" class="f-rep-tab-btn px-3 py-2 text-xs font-bold rounded-xl text-slate-600 whitespace-nowrap">📋 전체</button>
         </div>
       </div>
       <!-- 연도별 저장 / 비교 -->
@@ -789,7 +799,7 @@
 
   <script>
   // ======== app.js (모바일 최적화 버전) ========
-  const state={residents:[],evaluations:{},questions:[],currentTab:'dashboard',currentResidentId:null,currentCategorySubtab:'eating',filterStatus:'all',evalSubtab:'write',statsCategory:'eating',facilityReportCategory:'eating',questionsCategory:'eating',charts:[],snapshots:[],compareCharts:[]};
+  const state={residents:[],evaluations:{},questions:[],currentTab:'dashboard',currentResidentId:null,currentCategorySubtab:'eating',filterStatus:'all',evalSubtab:'write',statsCategory:'eating',facilityReportCategory:'eating',questionsCategory:'eating',charts:[],snapshots:[],compareCharts:[],facilityNotes:{}};
   let _snapshotsLoaded=false;
 
   // 사용자 입력값을 innerHTML에 삽입하기 전 XSS 방지용 이스케이프
@@ -842,6 +852,7 @@
     // 로컬 먼저 (빠른 초기 렌더)
     try{state.residents=JSON.parse(localStorage.getItem("adl_v2_residents")||"[]");}catch(e){state.residents=[];}
     try{state.evaluations=JSON.parse(localStorage.getItem("adl_v2_evaluations")||"{}");}catch(e){state.evaluations={};}
+    try{state.facilityNotes=JSON.parse(localStorage.getItem("adl_v2_facility_notes")||"{}");}catch(e){state.facilityNotes={};}
     updateGlobalStats();
 
     // Firebase 실시간 자동 동기화 구독 (최초 1회만)
@@ -849,7 +860,7 @@
       try{
         setSyncStatus('loading');
         // 초기 전체 로드 (문항 포함)
-        const {residents, evaluations, questions} = await window._fb.loadAll();
+        const {residents, evaluations, questions, facilityNotes} = await window._fb.loadAll();
         if(residents.length > 0 || Object.keys(evaluations).length > 0){
           state.residents = residents;
           state.evaluations = evaluations;
@@ -860,6 +871,11 @@
         if(questions && questions.length > 0){
           state.questions = questions;
           window.QuestionsManager.saveQuestions(questions);
+        }
+        // Firebase에 저장된 종합보고서 직접 수정 내용 적용
+        if(facilityNotes){
+          state.facilityNotes = facilityNotes;
+          localStorage.setItem("adl_v2_facility_notes", JSON.stringify(facilityNotes));
         }
         updateGlobalStats();
         if(state.currentTab==='evaluation'){renderResidentSidebar();renderEvaluationView();}
@@ -887,6 +903,12 @@
             window.QuestionsManager.saveQuestions(questions);
             if(state.currentTab==='questions'){renderQuestionsConfig();}
             if(state.currentTab==='evaluation'){renderEvaluationForm();}
+            setSyncStatus('ok');
+          },
+          (facilityNotes) => {
+            state.facilityNotes = facilityNotes || {};
+            localStorage.setItem("adl_v2_facility_notes", JSON.stringify(state.facilityNotes));
+            if(state.currentTab==='reports'){renderFacilityReport();}
             setSyncStatus('ok');
           }
         );
@@ -1390,53 +1412,99 @@
     renderFacilityReport();
   }
 
-  function renderFacilityReport(){
-    const container=document.getElementById("facility-report-document");if(!container)return;
-    const evCount=state.residents.filter(r=>isEvaluationFinished(r.id)).length;
-    if(evCount===0){container.innerHTML=`<div class="text-center py-8 text-slate-400 text-sm"><p class="mb-1">평가 데이터가 없습니다.</p><p class="text-xs">거주인 평가 완료 후 확인하세요.</p></div>`;return;}
-    const cat=state.facilityReportCategory;
-    function getP(qId,val){const l=state.residents.filter(r=>isEvaluationFinished(r.id));const m=l.filter(r=>state.evaluations[r.id].scores[qId]===val);return((m.length/l.length)*100).toFixed(1);}
-    let html='';
-    const titles={eating:'🍚 식사 종합 평가서',snacking:'🍪 간식 종합 평가서',mobility:'🦽 이동 종합 평가서',water:'💧 물(수분) 종합 평가서'};
-    html+=`<div class="border-b-2 border-slate-700 pb-2 mb-4 flex justify-between items-center"><h2 class="text-sm font-bold text-slate-900">${titles[cat]}</h2><span class="text-[10px] text-slate-400">${evCount}명 대상</span></div><div class="text-xs leading-relaxed text-slate-700 space-y-4">`;
-    if(cat==='eating'){
-      html+=`<div class="bg-indigo-50/60 p-3 rounded-xl border-l-4 border-indigo-600 text-[11px] font-semibold">연하 보조식(다진식/갈아서)이 주를 이루며, 직원의 1:1 보조 하 식사 지원이 많습니다.</div>`;
-      html+=`<p><strong>식사 자립도:</strong> 스스로 먹는 비율 <strong class="text-indigo-600">${getP('eat_01','opt1')}%</strong>, 가벼운 보조 필요 <strong class="text-indigo-600">${getP('eat_01','opt2')}%</strong></p>`;
-      html+=`<p><strong>반찬 형태:</strong> 다진 반찬(가위질) 제공 비율 <strong class="text-indigo-600">${getP('eat_06','opt2')}%</strong></p>`;
-      html+=`<p><strong>식사 장소:</strong> 정형의자/휠체어 착석 비율 <strong class="text-indigo-600">${getP('eat_04','opt3')}%</strong></p>`;
-    }else if(cat==='snacking'){
-      html+=`<div class="bg-indigo-50/60 p-3 rounded-xl border-l-4 border-indigo-600 text-[11px] font-semibold">고체 간식보다 액체 간식 섭취 시 높은 수준의 지원이 필요합니다.</div>`;
-      html+=`<p><strong>고체 간식 자립:</strong> 잘 먹음 <strong class="text-indigo-600">${getP('snack_01','opt1')}%</strong>, 도움 필요 <strong class="text-indigo-600">${getP('snack_01','opt2')}%</strong></p>`;
-      html+=`<p><strong>과일 간식:</strong> 믹서에 갈아서 제공 <strong class="text-indigo-600">${getP('snack_03','opt2')}%</strong></p>`;
-      html+=`<p><strong>간식 자율선택:</strong> 선택 불가 <strong class="text-indigo-600">${getP('snack_08','opt2')}%</strong></p>`;
-    }else if(cat==='mobility'){
-      html+=`<div class="bg-indigo-50/60 p-3 rounded-xl border-l-4 border-indigo-600 text-[11px] font-semibold">네발 기기 및 휠체어 이동이 주를 이루며, 이승 시 낙상 예방 주의가 요망됩니다.</div>`;
-      html+=`<p><strong>이동 자립:</strong> 자력 이동 가능 <strong class="text-indigo-600">${getP('mob_01','opt1')}%</strong></p>`;
-      html+=`<p><strong>이동 수단:</strong> 네발기기+휠체어 <strong class="text-indigo-600">${getP('mob_02','opt1')}%</strong></p>`;
-      html+=`<p><strong>휠체어 발판:</strong> 타인이 제거해줘야 함 <strong class="text-indigo-600">${getP('mob_07','opt2')}%</strong></p>`;
-    }else if(cat==='water'){
-      html+=`<div class="bg-indigo-50/60 p-3 rounded-xl border-l-4 border-indigo-600 text-[11px] font-semibold">탈수 방지를 위해 1,000ml 이상 수분 공급이 격려되고 있습니다.</div>`;
-      html+=`<p><strong>자립 음용:</strong> 스스로 잘 마심 <strong class="text-indigo-600">${getP('wat_02','opt1')}%</strong></p>`;
-      html+=`<p><strong>점증제 사용:</strong> 토로미 혼합 <strong class="text-indigo-600">${getP('wat_05','opt2')}%</strong></p>`;
-      html+=`<p><strong>하루 목표량:</strong> 1000~1500ml 범위 <strong class="text-indigo-600">${getP('wat_06','opt3')}%</strong></p>`;
+  // 종합보고서 직접 수정 내용 저장 (로컬 + 서버 동기화)
+  async function saveFacilityNotesState(){
+    localStorage.setItem("adl_v2_facility_notes",JSON.stringify(state.facilityNotes));
+    if(window._fb){
+      try{setSyncStatus('loading');await window._fb.saveFacilityReports(state.facilityNotes);setSyncStatus('ok');}
+      catch(e){setSyncStatus('error');console.error(e);}
     }
-    html+='</div>';
-    // 기타(직접 입력) 특이사항 모음
+  }
+  function updateFacilityNote(key,text){
+    if(!state.facilityNotes)state.facilityNotes={};
+    const def=buildFacilityDefaultText(key);
+    const val=(text||"").trim();
+    // 자동 문장과 같으면 저장 안 함(불필요한 덮어쓰기 방지)
+    if(val===def.trim()){delete state.facilityNotes[key];}
+    else{state.facilityNotes[key]=val;}
+    saveFacilityNotesState();
+  }
+  function resetFacilityNote(key){
+    if(!confirm("이 보고서의 직접 수정 내용을 자동 생성 문장으로 되돌립니다. 계속할까요?"))return;
+    if(state.facilityNotes)delete state.facilityNotes[key];
+    saveFacilityNotesState();
+    renderFacilityReport();
+  }
+
+  // 완료 평가 대상 응답 비율(%)
+  function facilityStatP(qId,val){
+    const l=state.residents.filter(r=>isEvaluationFinished(r.id));
+    if(!l.length)return"0.0";
+    const m=l.filter(r=>state.evaluations[r.id].scores[qId]===val);
+    return((m.length/l.length)*100).toFixed(1);
+  }
+  // 영역별/전체 자동 생성 기본 문장 (수정 전 초기값 & 복원용)
+  function buildFacilityDefaultText(cat){
+    const p=facilityStatP;
+    const evCount=state.residents.filter(r=>isEvaluationFinished(r.id)).length;
+    if(cat==='eating'){
+      return `[식사 영역 종합]\n연하 보조식(다진식·갈아서)이 주를 이루며, 직원의 1:1 보조 하 식사 지원이 많습니다.\n· 식사 자립도: 스스로 먹는 비율 ${p('eat_01','opt1')}%, 가벼운 보조 필요 ${p('eat_01','opt2')}%\n· 반찬 형태: 다진 반찬(가위질) 제공 ${p('eat_06','opt2')}%\n· 식사 장소: 정형의자·휠체어 착석 ${p('eat_04','opt3')}%`;
+    }
+    if(cat==='snacking'){
+      return `[간식 영역 종합]\n고체 간식보다 액체 간식 섭취 시 높은 수준의 지원이 필요합니다.\n· 고체 간식 자립: 잘 먹음 ${p('snack_01','opt1')}%, 도움 필요 ${p('snack_01','opt2')}%\n· 과일 간식: 믹서에 갈아서 제공 ${p('snack_03','opt2')}%\n· 간식 자율선택: 선택 불가 ${p('snack_08','opt2')}%`;
+    }
+    if(cat==='mobility'){
+      return `[이동 영역 종합]\n네발 기기 및 휠체어 이동이 주를 이루며, 이승 시 낙상 예방 주의가 요망됩니다.\n· 이동 자립: 자력 이동 가능 ${p('mob_01','opt1')}%\n· 이동 수단: 네발기기+휠체어 ${p('mob_02','opt1')}%\n· 휠체어 발판: 타인이 제거해줘야 함 ${p('mob_07','opt2')}%`;
+    }
+    if(cat==='water'){
+      return `[물(수분) 영역 종합]\n탈수 방지를 위해 1,000ml 이상 수분 공급이 격려되고 있습니다.\n· 자립 음용: 스스로 잘 마심 ${p('wat_02','opt1')}%\n· 점증제 사용: 토로미 혼합 ${p('wat_05','opt2')}%\n· 하루 목표량: 1000~1500ml 범위 ${p('wat_06','opt3')}%`;
+    }
+    // 전체(overall)
+    const list=state.residents.filter(r=>isEvaluationFinished(r.id));
+    const avg=c=>list.length?(list.reduce((s,r)=>s+calculateCategoryScore(r.id,c),0)/list.length).toFixed(1):"0.0";
+    const ae=avg('eating'),as=avg('snacking'),am=avg('mobility'),aw=avg('water');
+    const total=(parseFloat(ae)+parseFloat(as)+parseFloat(am)+parseFloat(aw)).toFixed(1);
+    return `[전체 종합보고서]\n평가 완료 ${evCount}명을 대상으로 한 ADL 종합 결과입니다.\n영역별 평균점수 — 식사 ${ae}/30, 간식 ${as}/30, 이동 ${am}/30, 물 ${aw}/24 (총점 평균 ${total}/114점).\n\n`+
+      buildFacilityDefaultText('eating')+`\n\n`+buildFacilityDefaultText('snacking')+`\n\n`+buildFacilityDefaultText('mobility')+`\n\n`+buildFacilityDefaultText('water');
+  }
+  // 기타(직접 입력) 특이사항 모음 HTML (overall이면 전 영역)
+  function buildFacilityEtcHtml(cat){
     const etcItems=[];
+    const cats=cat==='overall'?['eating','snacking','mobility','water']:[cat];
     state.residents.filter(r=>isEvaluationFinished(r.id)).forEach(r=>{
       const ev=state.evaluations[r.id];
-      state.questions.filter(q=>q.category===cat).forEach(q=>{
+      state.questions.filter(q=>cats.includes(q.category)).forEach(q=>{
         if(ev.scores[q.id]==='etc'){
           const txt=(ev.etcText?.[q.id]||"").trim();
           if(txt)etcItems.push(`<li class="mb-1"><strong>${escapeHtml(r.name)}</strong> · ${escapeHtml(q.title)}: ${escapeHtml(txt)}</li>`);
         }
       });
     });
-    if(etcItems.length){
-      html+=`<div class="mt-4 pt-3 border-t border-slate-200"><p class="font-bold text-xs text-slate-800 mb-2">📝 기타 특이사항 (${etcItems.length}건)</p><ul class="text-[11px] text-slate-600 leading-relaxed list-disc pl-4">${etcItems.join('')}</ul></div>`;
-    }
+    if(!etcItems.length)return"";
+    return `<div class="mt-4 pt-3 border-t border-slate-200"><p class="font-bold text-xs text-slate-800 mb-2">📝 기타 특이사항 (${etcItems.length}건)</p><ul class="text-[11px] text-slate-600 leading-relaxed list-disc pl-4">${etcItems.join('')}</ul></div>`;
+  }
+
+  function renderFacilityReport(){
+    const container=document.getElementById("facility-report-document");if(!container)return;
+    const evCount=state.residents.filter(r=>isEvaluationFinished(r.id)).length;
+    if(evCount===0){container.innerHTML=`<div class="text-center py-8 text-slate-400 text-sm"><p class="mb-1">평가 데이터가 없습니다.</p><p class="text-xs">거주인 평가 완료 후 확인하세요.</p></div>`;return;}
+    const cat=state.facilityReportCategory;
+    const titles={eating:'🍚 식사 종합 평가서',snacking:'🍪 간식 종합 평가서',mobility:'🦽 이동 종합 평가서',water:'💧 물(수분) 종합 평가서',overall:'📋 전체 종합보고서'};
+    let html=`<div class="border-b-2 border-slate-700 pb-2 mb-3 flex justify-between items-center"><h2 class="text-sm font-bold text-slate-900">${titles[cat]||'종합 평가서'}</h2><span class="text-[10px] text-slate-400">${evCount}명 대상</span></div>`;
+    // 직접 수정 가능한 본문 (저장된 수정본이 있으면 그것을, 없으면 자동 생성 문장)
+    const def=buildFacilityDefaultText(cat);
+    const override=state.facilityNotes?.[cat];
+    const shown=(override!=null&&override!=='')?override:def;
+    const edited=(override!=null&&override!=='');
+    html+=`<div class="flex items-center justify-between mb-1 no-print">
+      <p class="text-[11px] font-bold text-slate-500">✏️ 보고서 내용 ${edited?'<span class="text-amber-600">(수정됨)</span>':'<span class="text-slate-400 font-normal">(자동 생성 · 탭하여 수정)</span>'}</p>
+      <button onclick="resetFacilityNote('${cat}')" class="text-[10px] text-slate-600 bg-slate-100 px-2 py-1 rounded-lg font-bold flex items-center gap-1">↺ 자동 복원</button>
+    </div>`;
+    html+=`<div contenteditable="true" spellcheck="false" onblur="updateFacilityNote('${cat}',this.innerText)" class="border border-slate-200 rounded-xl p-3 text-[11px] leading-relaxed text-slate-700 focus:outline-none focus:border-indigo-400 focus:bg-yellow-50/40 whitespace-pre-wrap min-h-[120px] cursor-text">${escapeHtml(shown)}</div>`;
+    // 기타 특이사항 (항상 최신 데이터 기준, 읽기 전용)
+    html+=buildFacilityEtcHtml(cat);
     container.innerHTML=html;
-      }
+  }
 
   // ===== 연도별 종합보고서 스냅샷 & 비교분석 =====
   async function ensureSnapshotsLoaded(){
@@ -1715,7 +1783,7 @@
   }
 
   function exportBackupData(){
-    const blob=new Blob([JSON.stringify({residents:state.residents,evaluations:state.evaluations,questions:state.questions},null,2)],{type:"application/json"});
+    const blob=new Blob([JSON.stringify({residents:state.residents,evaluations:state.evaluations,questions:state.questions,facilityNotes:state.facilityNotes},null,2)],{type:"application/json"});
     const url=URL.createObjectURL(blob);
     const a=document.createElement("a");a.href=url;a.download=`ADL_Backup_${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(url);
   }
@@ -1734,6 +1802,7 @@
           }
           state.residents=restoreData.residents;state.evaluations=restoreData.evaluations;
           if(restoreData.questions){state.questions=restoreData.questions;window.QuestionsManager.saveQuestions(restoreData.questions);}
+          if(restoreData.facilityNotes){state.facilityNotes=restoreData.facilityNotes;await saveFacilityNotesState();}
           await saveResidentsState();await saveEvaluationsState();
           alert("복원 완료!");state.currentResidentId=null;loadDatabase();switchTab('dashboard');
         }else alert("파일 포맷이 맞지 않습니다.");
@@ -1746,12 +1815,12 @@
       try{ setSyncStatus('loading'); await window._fb.deleteAllResidentsAndEvaluations(); setSyncStatus('ok'); }
       catch(e){ console.error(e); alert("서버 데이터 삭제 중 오류가 발생했습니다: "+e.message); }
     }
-    localStorage.clear();state.residents=[];state.evaluations={};state.currentResidentId=null;
+    localStorage.clear();state.residents=[];state.evaluations={};state.facilityNotes={};state.currentResidentId=null;
     loadDatabase();alert("초기화 완료");switchTab('dashboard');
   }
 
   // 전역 바인딩
-  Object.assign(window,{switchTab,filterResidents,setFilterStatus,selectResident,toggleAddResidentModal,saveResidentInfo,openEditResidentModal,deleteResident,switchEvalSubtab,selectQuestionOption,switchCategorySubtab,saveCurrentEvaluation,updateOpinionText,updateDescText,resetReportText,switchStatsCategory,switchFacilityReport,switchQuestionsCategory,saveCustomQuestions,resetQuestionsToDefault,exportToExcel,exportBackupData,triggerBackupImport,importBackupData,clearAllData,openResidentPanel,closeResidentPanel,updateEtcText,addQuestion,deleteQuestion,addOption,deleteOption,saveCurrentYearReport,toggleYearlyComparison,renderYearlyComparison,deleteYearlyReport});
+  Object.assign(window,{switchTab,filterResidents,setFilterStatus,selectResident,toggleAddResidentModal,saveResidentInfo,openEditResidentModal,deleteResident,switchEvalSubtab,selectQuestionOption,switchCategorySubtab,saveCurrentEvaluation,updateOpinionText,updateDescText,resetReportText,switchStatsCategory,switchFacilityReport,updateFacilityNote,resetFacilityNote,switchQuestionsCategory,saveCustomQuestions,resetQuestionsToDefault,exportToExcel,exportBackupData,triggerBackupImport,importBackupData,clearAllData,openResidentPanel,closeResidentPanel,updateEtcText,addQuestion,deleteQuestion,addOption,deleteOption,saveCurrentYearReport,toggleYearlyComparison,renderYearlyComparison,deleteYearlyReport});
   </script>
 </body>
 </html>
