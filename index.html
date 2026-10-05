@@ -428,7 +428,7 @@
       <!-- 평가 콘텐츠 -->
       <div id="evaluation-content-panel" class="hidden space-y-3">
         <!-- 선택된 거주인 정보 바 -->
-        <div class="glass-panel rounded-2xl p-3 flex items-center justify-between">
+        <div class="glass-panel rounded-2xl p-3 flex items-center justify-between no-print">
           <div class="flex items-center gap-2">
             <div class="w-8 h-8 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center font-bold text-sm" id="res-avatar">-</div>
             <div>
@@ -823,6 +823,14 @@
           <input type="text" id="res-diagnosis" placeholder="예: 뇌병변 1급" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 text-sm">
         </div>
         <div>
+          <label class="block font-bold text-slate-700 mb-1">식이 형태 <span class="text-[10px] text-slate-400 font-normal">(경관식이면 식사·간식·물 결과지가 자동 작성됩니다)</span></label>
+          <select id="res-feeding" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 text-sm">
+            <option value="">경구 (일반 섭취)</option>
+            <option value="ltube">L-tube (비위관)</option>
+            <option value="gtube">G-tube (위루관)</option>
+          </select>
+        </div>
+        <div>
           <label class="block font-bold text-slate-700 mb-1">특이사항</label>
           <textarea id="res-notes" rows="2" placeholder="임상 참고사항..." class="w-full border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 text-sm resize-none"></textarea>
         </div>
@@ -1193,6 +1201,7 @@
       document.getElementById("res-gender").value="남";
       document.getElementById("res-birthdate").value="";
       document.getElementById("res-health").value="good";
+      document.getElementById("res-feeding").value="";
       modal.className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4";
     }else{
       modal.className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4";
@@ -1211,6 +1220,7 @@
     document.getElementById("res-diagnosis").value=r.diagnosis||"";
     document.getElementById("res-room").value=r.room||"";
     document.getElementById("res-health").value=r.health||"good";
+    document.getElementById("res-feeding").value=r.feeding||"";
     document.getElementById("res-notes").value=r.notes||"";
     document.getElementById("resident-modal").className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4";
       }
@@ -1219,7 +1229,7 @@
     const editId=document.getElementById("res-edit-id").value;
     const name=document.getElementById("res-name").value.trim();
     if(!name){alert("성명은 필수 입력 항목입니다.");return;}
-    const data={name,gender:document.getElementById("res-gender").value,birthdate:document.getElementById("res-birthdate").value,diagnosis:document.getElementById("res-diagnosis").value.trim(),room:document.getElementById("res-room").value.trim(),health:document.getElementById("res-health").value,notes:document.getElementById("res-notes").value.trim()};
+    const data={name,gender:document.getElementById("res-gender").value,birthdate:document.getElementById("res-birthdate").value,diagnosis:document.getElementById("res-diagnosis").value.trim(),room:document.getElementById("res-room").value.trim(),health:document.getElementById("res-health").value,feeding:document.getElementById("res-feeding").value,notes:document.getElementById("res-notes").value.trim()};
     if(editId){
       const i=state.residents.findIndex(r=>r.id===editId);
       if(i!==-1)state.residents[i]={...state.residents[i],...data};
@@ -1636,16 +1646,31 @@
   }
 
   // 결과지 서술 문장 조합: 보기 답변은 템플릿 문장으로, 기타(특이사항) 메모는 점수와 별개로 '※ 기타'로 함께 반영
+  // 경관식(L-tube/G-tube) 대상자는 식사·간식·물 영역 문장을 자동으로 경관식 문구로 대체
   function buildCategorySentences(resId,cat){
     const ev=state.evaluations[resId]||{scores:{}};
+    const r=state.residents.find(x=>x.id===resId);
+    const feeding=r&&r.feeding;
     const sentences=[];
     const etcNotes=[];
     state.questions.filter(q=>q.category===cat).forEach(q=>{
-      const opt=q.options.find(o=>o.value===ev.scores[q.id]);
-      if(opt?.template)sentences.push(opt.template);
-      const note=(ev.etcText?.[q.id]||"").trim(); // 보기 선택과 무관하게 기타 메모가 있으면 반영
+      const note=(ev.etcText?.[q.id]||"").trim();
       if(note)etcNotes.push(note);
     });
+    if(feeding&&(cat==='eating'||cat==='snacking'||cat==='water')){
+      const tube=feeding==='gtube'?'G-tube(위루관)':'L-tube(비위관)';
+      const txt={
+        eating:`${tube}를 통해 경관 유동식을 제공받고 있으며, 입으로 직접 식사하지 않음.`,
+        snacking:`간식도 ${tube} 경관으로 제공되며, 구강으로 간식을 섭취하지 않음.`,
+        water:`수분(물)도 ${tube} 경관으로 공급받고 있음.`
+      };
+      sentences.push(txt[cat]);
+    }else{
+      state.questions.filter(q=>q.category===cat).forEach(q=>{
+        const opt=q.options.find(o=>o.value===ev.scores[q.id]);
+        if(opt?.template)sentences.push(opt.template);
+      });
+    }
     if(etcNotes.length)sentences.push(`※ 기타: ${etcNotes.join(' / ')}`);
     return sentences;
   }
