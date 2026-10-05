@@ -379,6 +379,15 @@
         </button>
       </div>
 
+      <!-- 지원강도 등급 기준표 -->
+      <div class="glass-panel rounded-2xl p-4 space-y-2">
+        <h3 class="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+          <span class="text-sm">🎯</span> 종합 지원강도 등급 기준
+        </h3>
+        <div id="support-bands-table" class="space-y-1.5"></div>
+        <p class="text-[10px] text-slate-400">※ 총점이 높을수록 지원이 많이 필요한 분입니다. (기타는 점수에 미포함)</p>
+      </div>
+
       <!-- DB 관리 (고급 - 기본 접힘) -->
       <details class="glass-panel rounded-2xl p-4">
         <summary class="text-xs font-bold text-slate-600 flex items-center gap-1.5 cursor-pointer select-none">
@@ -1515,6 +1524,30 @@
     return{label:'3단계 · 중증(전면) 지원',desc:'전반적으로 전면적인 지원이 필요한 수준',color:'#dc2626'};
   }
 
+  // 등급별 점수 구간 계산 (supportLevel 기준과 동일: 비율 0.34 / 0.67 경계)
+  function supportBands(){
+    const minT=state.questions.length;      // 모든 문항 보기1 = 최소점
+    const maxT=maxTotalScore();              // 모든 문항 최고 보기 = 만점
+    const span=Math.max(1,maxT-minT);
+    const b1=Math.ceil(minT+0.34*span);      // 중등도 시작점
+    const b2=Math.ceil(minT+0.67*span);      // 중증 시작점
+    return [
+      {label:'1단계 · 경도 지원',   min:minT, max:b1-1,  color:'#059669', desc:'부분적·간헐적 지원'},
+      {label:'2단계 · 중등도 지원', min:b1,   max:b2-1,  color:'#d97706', desc:'상당한 일상 지원'},
+      {label:'3단계 · 중증(전면) 지원', min:b2, max:maxT, color:'#dc2626', desc:'전면적 지원'},
+    ];
+  }
+  // 대시보드 등급 기준표 렌더
+  function renderSupportBands(){
+    const el=document.getElementById("support-bands-table");if(!el)return;
+    const bands=supportBands();
+    el.innerHTML=bands.map(b=>`
+      <div class="flex items-center justify-between rounded-xl px-3 py-2" style="background:${b.color}14;border:1px solid ${b.color}33;">
+        <span class="text-xs font-bold" style="color:${b.color}">${b.label}</span>
+        <span class="text-xs font-mono font-bold text-slate-700">${b.min} ~ ${b.max}점 <span class="text-[10px] text-slate-400 font-sans font-normal">(${b.desc})</span></span>
+      </div>`).join('');
+  }
+
   // 평가 완료 거주인들의 순위 목록 (지원강도 총점 높은 순)
   function getFinishedRanking(){
     const maxTotal=maxTotalScore();
@@ -2085,6 +2118,7 @@
   }
 
   function updateGlobalStats(){
+    renderSupportBands();
     const total=state.residents.length;
     const done=state.residents.filter(r=>isEvaluationFinished(r.id)).length;
     document.getElementById("stat-total-residents").innerText=total;
