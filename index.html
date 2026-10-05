@@ -1240,7 +1240,7 @@
   function isEvaluationFinished(id){
     const ev=state.evaluations[id];
     if(!ev||!ev.scores)return false;
-    return state.questions.every(q=>ev.scores[q.id]!==undefined&&ev.scores[q.id]!==null);
+    return state.questions.every(q=>ev.scores[q.id]!==undefined&&ev.scores[q.id]!==null&&ev.scores[q.id]!=='etc');
   }
 
   function switchEvalSubtab(mode){
@@ -1308,14 +1308,9 @@
           <div class="text-xs font-semibold text-slate-800">${escapeHtml(opt.label)}</div>
         </label>`;
       });
-      // 기타(직접 입력) 옵션 - 모든 문항에 항상 제공 (선택 시 0점 처리, 적은 내용이 결과지/보고서에 반영)
-      const isEtc=checked==='etc';
+      // 기타(특이사항) - 보기 점수와 별도의 추가 메모. 점수에 반영되지 않고 결과지에만 반영됨
       const etcVal=ev.etcText?.[q.id]||"";
-      const etcHtml=`<label class="custom-radio ${isEtc?'active-option':''}" onclick="selectQuestionOption('${q.id}','etc',this)">
-          <input type="radio" name="q_${q.id}" value="etc" ${isEtc?'checked':''}>
-          <div class="text-xs font-semibold text-slate-800">기타 (직접 입력)</div>
-        </label>
-        <textarea id="etc_${q.id}" oninput="updateEtcText('${q.id}',this.value)" placeholder="기타 내용을 직접 입력하세요 (결과지/보고서에 반영됩니다)" rows="2" class="w-full border border-slate-200 rounded-lg px-2.5 py-2 text-xs bg-white resize-none ${isEtc?'':'hidden'}">${escapeHtml(etcVal)}</textarea>`;
+      const etcHtml=`<textarea id="etc_${q.id}" oninput="updateEtcText('${q.id}',this.value)" placeholder="＋ 기타 특이사항 (선택 입력 · 점수 미반영, 결과지에 반영)" rows="${etcVal?2:1}" class="w-full border border-dashed border-slate-300 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50/60 resize-none mt-1">${escapeHtml(etcVal)}</textarea>`;
       div.innerHTML=`
         <div>
           <div class="flex items-center gap-2">
@@ -1339,9 +1334,6 @@
     element.parentElement.querySelectorAll(".custom-radio").forEach(l=>l.classList.remove("active-option"));
     element.classList.add("active-option");
     const radio=element.querySelector("input[type='radio']");if(radio)radio.checked=true;
-    // 기타 텍스트 입력창 표시/숨김
-    const etcBox=document.getElementById(`etc_${qId}`);
-    if(etcBox)etcBox.classList.toggle("hidden",value!=='etc');
     updateSubtabsProgress(resId);
   }
 
@@ -1356,7 +1348,7 @@
     const ev=state.evaluations[resId]||{scores:{}};
     ['eating','snacking','mobility','water'].forEach(cat=>{
       const qs=state.questions.filter(q=>q.category===cat);
-      const done=qs.filter(q=>ev.scores[q.id]!=null).length;
+      const done=qs.filter(q=>ev.scores[q.id]!=null&&ev.scores[q.id]!=='etc').length;
       const badge=document.getElementById(`prog-${cat}`);
       if(badge){
         badge.innerText=`${done}/${qs.length}`;
@@ -1406,7 +1398,7 @@
     ['eating','snacking','mobility','water'].forEach(cat=>{
       const descEl=document.getElementById(`rep-desc-${cat}`);
       const scoreEl=document.getElementById(`rep-score-${cat}`);
-      const max=maxCategoryScore(cat,resId);
+      const max=maxCategoryScore(cat);
       const score=calculateCategoryScore(resId,cat);
       total+=score;
       scoreEl.innerText=`${score}/${max}`;
@@ -1415,14 +1407,14 @@
       const shown=ev.descOverride?.[cat] ?? autoText;
       descEl.innerHTML=`<div contenteditable="true" spellcheck="false" onblur="updateDescText('${cat}',this.innerText)" class="focus:outline-none focus:bg-yellow-50 rounded px-0.5 leading-relaxed cursor-text">${escapeHtml(shown)}</div>`;
     });
-    const maxTotal=maxTotalScore(resId);
+    const maxTotal=maxTotalScore();
     const totalEl=document.getElementById("rep-score-total");
     if(totalEl)totalEl.innerText=`${total}/${maxTotal}`;
     // 종합 지원강도 등급
     const gradeEl=document.getElementById("rep-support-level");
     if(gradeEl){
       if(done){
-        const lv=supportLevel(total,maxTotal,assessedQuestionCount(resId));
+        const lv=supportLevel(total,maxTotal);
         const ri=residentRankInfo(resId);
         const rankTxt=ri?`시설 내 지원강도 순위 <b>${ri.rank}/${ri.count}위</b> · 상위 ${ri.topPct}%`:'';
         gradeEl.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
@@ -1482,10 +1474,10 @@
     const r=state.residents.find(x=>x.id===resId);if(!r)return"";
     const e=calculateCategoryScore(resId,'eating'),s=calculateCategoryScore(resId,'snacking'),m=calculateCategoryScore(resId,'mobility'),w=calculateCategoryScore(resId,'water');
     const total=e+s+m+w;
-    const maxTotal=maxTotalScore(resId);
-    const lv=supportLevel(total,maxTotal,assessedQuestionCount(resId));
+    const maxTotal=maxTotalScore();
+    const lv=supportLevel(total,maxTotal);
     let t=`[작업치료 ADL 진단 소견]\n대상자는 ${r.diagnosis||'장애인'}이며, ADL 총 지원강도 점수는 ${total}점(${maxTotal}점 만점)으로 '${lv.label}' 수준입니다.\n`;
-    const ratio=(sc,cat)=>{const mx=maxCategoryScore(cat,resId);return mx>0?sc/mx:0;};
+    const ratio=(sc,cat)=>{const mx=maxCategoryScore(cat);return mx>0?sc/mx:0;};
     const high=[];
     if(ratio(e,'eating')>=0.7)high.push('식사');
     if(ratio(s,'snacking')>=0.7)high.push('간식');
@@ -1506,25 +1498,16 @@
       return s+(idx>=0?idx+1:0);
     },0);
   }
-  // 영역 만점 = 각 문항 보기 개수의 합. resId를 주면 그 사람이 '기타'로 답한 문항은 제외(점수·만점 모두 제외)
-  function maxCategoryScore(cat,resId){
-    const ev=resId?state.evaluations[resId]:null;
-    return state.questions.filter(q=>q.category===cat).reduce((s,q)=>{
-      if(ev&&ev.scores&&ev.scores[q.id]==='etc')return s; // 기타는 만점에서도 제외
-      return s+(q.options.length||0);
-    },0);
+  // 영역 만점 = 각 문항 보기 개수의 합 (모든 문항이 점수에 포함됨. 기타는 점수와 무관한 별도 메모)
+  function maxCategoryScore(cat){
+    return state.questions.filter(q=>q.category===cat).reduce((s,q)=>s+(q.options.length||0),0);
   }
-  function maxTotalScore(resId){
-    return ['eating','snacking','mobility','water'].reduce((s,c)=>s+maxCategoryScore(c,resId),0);
+  function maxTotalScore(){
+    return ['eating','snacking','mobility','water'].reduce((s,c)=>s+maxCategoryScore(c),0);
   }
-  // 점수로 환산된(기타·미응답 제외) 문항 수 = 등급 계산 시 최소점
-  function assessedQuestionCount(resId){
-    const ev=state.evaluations[resId];if(!ev||!ev.scores)return 0;
-    return state.questions.filter(q=>{const v=ev.scores[q.id];return v!=null&&v!=='etc';}).length;
-  }
-  // 총점 기준 종합 지원강도 등급 (비율 기반). minTotal=점수화된 문항 수
-  function supportLevel(total,maxTotal,minTotal){
-    minTotal=minTotal||0;
+  // 총점 기준 종합 지원강도 등급 (비율 기반). minTotal=전체 문항 수(모두 보기1 선택 시 최소점)
+  function supportLevel(total,maxTotal){
+    const minTotal=state.questions.length;
     const span=Math.max(1,maxTotal-minTotal);
     const r=(total-minTotal)/span; // 0(최저 지원) ~ 1(최고 지원)
     if(r<0.34)return{label:'1단계 · 경도 지원',desc:'부분적·간헐적 지원이 필요한 수준',color:'#059669'};
@@ -1532,24 +1515,21 @@
     return{label:'3단계 · 중증(전면) 지원',desc:'전반적으로 전면적인 지원이 필요한 수준',color:'#dc2626'};
   }
 
-  // 평가 완료 거주인들의 순위 목록 (지원강도 비율 높은 순, 기타 제외 반영)
+  // 평가 완료 거주인들의 순위 목록 (지원강도 총점 높은 순)
   function getFinishedRanking(){
-    const fullMax=maxTotalScore();
+    const maxTotal=maxTotalScore();
     const arr=state.residents.filter(r=>isEvaluationFinished(r.id)).map(r=>{
       const total=['eating','snacking','mobility','water'].reduce((s,c)=>s+calculateCategoryScore(r.id,c),0);
-      const mt=maxTotalScore(r.id);
-      const minT=assessedQuestionCount(r.id);
-      const ratio=mt>minT?(total-minT)/(mt-minT):0;
-      return {id:r.id,name:r.name,room:r.room||'',total,maxTotal:mt,ratio,grade:supportLevel(total,mt,minT)};
+      return {id:r.id,name:r.name,room:r.room||'',total,maxTotal,grade:supportLevel(total,maxTotal)};
     });
-    arr.sort((a,b)=>b.ratio-a.ratio||b.total-a.total);
+    arr.sort((a,b)=>b.total-a.total);
     const n=arr.length;
     arr.forEach((x,i)=>{
       x.rank=i+1;
       x.percentile=n>1?Math.round((i/(n-1))*100):0;
       x.topPct=n>0?Math.round(((i+1)/n)*100):0;
     });
-    return {list:arr,count:n,maxTotal:fullMax};
+    return {list:arr,count:n,maxTotal};
   }
   // 특정 거주인의 시설 내 순위 정보
   function residentRankInfo(resId){
@@ -1622,20 +1602,16 @@
     setTimeout(()=>window.print(),60);
   }
 
-  // 결과지 서술 문장 조합: 점수화된 보기는 템플릿 문장으로, '기타'는 점수 제외하고 '기타'로 묶어 반영
+  // 결과지 서술 문장 조합: 보기 답변은 템플릿 문장으로, 기타(특이사항) 메모는 점수와 별개로 '※ 기타'로 함께 반영
   function buildCategorySentences(resId,cat){
     const ev=state.evaluations[resId]||{scores:{}};
     const sentences=[];
     const etcNotes=[];
     state.questions.filter(q=>q.category===cat).forEach(q=>{
-      const v=ev.scores[q.id];
-      if(v==='etc'){
-        const t=(ev.etcText?.[q.id]||"").trim();
-        if(t)etcNotes.push(t);
-        return;
-      }
-      const opt=q.options.find(o=>o.value===v);
+      const opt=q.options.find(o=>o.value===ev.scores[q.id]);
       if(opt?.template)sentences.push(opt.template);
+      const note=(ev.etcText?.[q.id]||"").trim(); // 보기 선택과 무관하게 기타 메모가 있으면 반영
+      if(note)etcNotes.push(note);
     });
     if(etcNotes.length)sentences.push(`※ 기타: ${etcNotes.join(' / ')}`);
     return sentences;
@@ -1744,10 +1720,8 @@
     state.residents.filter(r=>isEvaluationFinished(r.id)).forEach(r=>{
       const ev=state.evaluations[r.id];
       state.questions.filter(q=>cats.includes(q.category)).forEach(q=>{
-        if(ev.scores[q.id]==='etc'){
-          const txt=(ev.etcText?.[q.id]||"").trim();
-          if(txt)etcItems.push(`<li class="mb-1"><strong>${escapeHtml(r.name)}</strong> · ${escapeHtml(q.title)}: ${escapeHtml(txt)}</li>`);
-        }
+        const txt=(ev.etcText?.[q.id]||"").trim(); // 보기 선택과 무관하게 기타 메모 수집
+        if(txt)etcItems.push(`<li class="mb-1"><strong>${escapeHtml(r.name)}</strong> · ${escapeHtml(q.title)}: ${escapeHtml(txt)}</li>`);
       });
     });
     if(!etcItems.length)return"";
