@@ -771,6 +771,12 @@
         <button id="filter-btn-pending" onclick="setFilterStatus('pending')" class="py-1.5 rounded text-slate-600">대기</button>
       </div>
     </div>
+    <!-- 빈 결과지(수기용) 인쇄 -->
+    <div class="px-3 py-2 border-b border-slate-100">
+      <button onclick="printBlankResultSheet()" class="w-full py-2 bg-slate-100 text-slate-700 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5">
+        <span class="text-xs">📄</span> 빈 결과지 인쇄 (수기 작성용)
+      </button>
+    </div>
     <!-- 목록 -->
     <div id="resident-list-container" class="divide-y divide-slate-100 pb-20"></div>
   </div>
@@ -2188,6 +2194,42 @@
     return rooms.sort((a,b)=>{const ka=key(a),kb=key(b);return ka[0]-kb[0]||ka[1]-kb[1]||ka[2].localeCompare(kb[2]);});
   }
 
+  // 빈 결과지(수기 작성용) 인쇄 — 세로 A4 한 페이지에 꽉 차게
+  function printBlankResultSheet(){
+    const sheet=document.getElementById("question-print-sheet");if(!sheet)return;
+    const bd='1px solid #000';
+    let html=`<div style="padding:9mm;color:#000;">`;
+    html+=`<h1 style="text-align:center;font-size:20px;font-weight:800;letter-spacing:6px;margin:0;">평 가 결 과 지</h1>`;
+    html+=`<p style="text-align:center;font-size:11px;margin:3mm 0 5mm;">평가일 :　　　　년　　　　월　　　　일</p>`;
+    // 인적사항
+    html+=`<table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:5mm;"><tbody>`;
+    html+=`<tr><td style="border:${bd};background:#f1f5f9;width:20%;height:11mm;text-align:center;font-weight:700;">성명</td><td style="border:${bd};width:30%;"></td><td style="border:${bd};background:#f1f5f9;width:20%;text-align:center;font-weight:700;">성별</td><td style="border:${bd};width:30%;text-align:center;">□ 남　　□ 여</td></tr>`;
+    html+=`<tr><td style="border:${bd};background:#f1f5f9;height:11mm;text-align:center;font-weight:700;">생년월일</td><td style="border:${bd};"></td><td style="border:${bd};background:#f1f5f9;text-align:center;font-weight:700;">장애유형</td><td style="border:${bd};"></td></tr>`;
+    html+=`<tr><td style="border:${bd};background:#f1f5f9;height:11mm;text-align:center;font-weight:700;">건강상태</td><td colspan="3" style="border:${bd};padding-left:8px;">□ 매우 좋지 않음　　□ 좋지 않음　　□ 좋은 편임　　□ 매우 좋음</td></tr>`;
+    html+=`</tbody></table>`;
+    // ADL 표
+    html+=`<p style="font-weight:700;font-size:12px;border-left:4px solid #000;padding-left:6px;margin:0 0 3mm;">■ ADL (식사·간식·이동·물)</p>`;
+    html+=`<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:11px;"><colgroup><col style="width:14%"><col><col style="width:16%"></colgroup>`;
+    html+=`<tr style="background:#f1f5f9;"><th style="border:${bd};padding:6px;">영역</th><th style="border:${bd};padding:6px;">종합의견</th><th style="border:${bd};padding:6px;">점수</th></tr>`;
+    ['식사','간식','이동','물'].forEach(c=>{
+      html+=`<tr><td style="border:${bd};height:26mm;text-align:center;font-weight:700;background:#f8fafc;">${c}</td><td style="border:${bd};"></td><td style="border:${bd};"></td></tr>`;
+    });
+    html+=`<tr style="background:#f1f5f9;"><td colspan="2" style="border:${bd};height:10mm;text-align:center;font-weight:700;">총점</td><td style="border:${bd};"></td></tr>`;
+    html+=`</table>`;
+    // 등급
+    html+=`<div style="border:${bd};height:10mm;margin-top:4mm;padding:6px;font-size:11px;font-weight:700;">종합 지원강도 등급 :</div>`;
+    // 소견
+    html+=`<p style="font-weight:700;font-size:12px;border-left:4px solid #000;padding-left:6px;margin:4mm 0 2mm;">■ 종합 임상 소견</p>`;
+    html+=`<div style="border:${bd};height:36mm;"></div>`;
+    html+=`<div style="border-top:${bd};margin-top:6mm;padding-top:3mm;display:flex;justify-content:space-between;font-size:9px;font-weight:700;"><span>ADL x SIS Ver. 2.0</span><span>중증장애인 거주시설 쉼터 (인)</span></div>`;
+    html+=`</div>`;
+    sheet.innerHTML=html;
+    document.body.classList.add('printing-questions');
+    const cleanup=()=>{document.body.classList.remove('printing-questions');window.removeEventListener('afterprint',cleanup);};
+    window.addEventListener('afterprint',cleanup);
+    setTimeout(()=>window.print(),60);
+  }
+
   // 거주실별 대상자 명단(전문 양식) 인쇄 — 가로 한 페이지, 앱 데이터로 자동 생성
   function printResidentRoster(){
     const sheet=document.getElementById("question-print-sheet");if(!sheet)return;
@@ -2278,7 +2320,7 @@
   }
 
   // 전역 바인딩
-  Object.assign(window,{switchTab,filterResidents,setFilterStatus,selectResident,toggleSelectMode,toggleResidentSelect,toggleSelectAll,deleteSelectedResidents,toggleAddResidentModal,saveResidentInfo,openEditResidentModal,deleteResident,switchEvalSubtab,selectQuestionOption,switchCategorySubtab,saveCurrentEvaluation,updateOpinionText,updateDescText,resetReportText,switchStatsCategory,switchFacilityReport,updateFacilityNote,resetFacilityNote,switchQuestionsCategory,saveCustomQuestions,resetQuestionsToDefault,exportToExcel,exportBackupData,triggerBackupImport,importBackupData,printResidentRoster,printSupportRanking,clearAllData,openResidentPanel,closeResidentPanel,updateEtcText,addQuestion,deleteQuestion,addOption,deleteOption,printQuestionSheet,saveCurrentYearReport,toggleYearlyComparison,renderYearlyComparison,deleteYearlyReport});
+  Object.assign(window,{switchTab,filterResidents,setFilterStatus,selectResident,toggleSelectMode,toggleResidentSelect,toggleSelectAll,deleteSelectedResidents,toggleAddResidentModal,saveResidentInfo,openEditResidentModal,deleteResident,switchEvalSubtab,selectQuestionOption,switchCategorySubtab,saveCurrentEvaluation,updateOpinionText,updateDescText,resetReportText,switchStatsCategory,switchFacilityReport,updateFacilityNote,resetFacilityNote,switchQuestionsCategory,saveCustomQuestions,resetQuestionsToDefault,exportToExcel,exportBackupData,triggerBackupImport,importBackupData,printResidentRoster,printBlankResultSheet,printSupportRanking,clearAllData,openResidentPanel,closeResidentPanel,updateEtcText,addQuestion,deleteQuestion,addOption,deleteOption,printQuestionSheet,saveCurrentYearReport,toggleYearlyComparison,renderYearlyComparison,deleteYearlyReport});
   </script>
 </body>
 </html>
