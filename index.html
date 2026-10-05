@@ -379,10 +379,10 @@
         </button>
       </div>
 
-      <!-- 지원강도 등급 기준표 -->
+      <!-- 지원강도 수준 기준표 -->
       <div class="glass-panel rounded-2xl p-4 space-y-2">
         <h3 class="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-          <span class="text-sm">🎯</span> 종합 지원강도 등급 기준
+          <span class="text-sm">🎯</span> 종합 지원강도 수준 기준
         </h3>
         <div id="support-bands-table" class="space-y-1.5"></div>
         <p class="text-[10px] text-slate-400">※ 총점이 높을수록 지원이 많이 필요한 분입니다. (기타는 점수에 미포함)</p>
@@ -1435,7 +1435,7 @@
     const maxTotal=maxTotalScore();
     const totalEl=document.getElementById("rep-score-total");
     if(totalEl)totalEl.innerText=`${total}/${maxTotal}`;
-    // 종합 지원강도 등급
+    // 종합 지원강도 수준
     const gradeEl=document.getElementById("rep-support-level");
     if(gradeEl){
       if(done){
@@ -1443,11 +1443,11 @@
         const ri=residentRankInfo(resId);
         const rankTxt=ri?`시설 내 지원강도 순위 <b>${ri.rank}/${ri.count}위</b> · 상위 ${ri.topPct}%`:'';
         gradeEl.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-          <span><b>종합 지원강도 등급</b> : <b style="color:${lv.color}">${lv.label}</b> <span style="color:#555;">(${lv.desc})</span></span>
+          <span><b>종합 지원강도 수준</b> : <b style="color:${lv.color}">${lv.label}</b> <span style="color:#555;">(${lv.desc})</span></span>
           <span style="font-family:monospace;font-weight:700;">총점 ${total}/${maxTotal}</span></div>
           ${rankTxt?`<div style="margin-top:3px;color:#334155;">${rankTxt}</div>`:''}`;
       }else{
-        gradeEl.innerHTML=`<span class="text-slate-400 text-[10px]">평가 완료 후 종합 지원강도 등급이 표시됩니다.</span>`;
+        gradeEl.innerHTML=`<span class="text-slate-400 text-[10px]">평가 완료 후 종합 지원강도 수준이 표시됩니다.</span>`;
       }
     }
     const opEl=document.getElementById("rep-overall-clinical-opinion");
@@ -1530,7 +1530,7 @@
   function maxTotalScore(){
     return ['eating','snacking','mobility','water'].reduce((s,c)=>s+maxCategoryScore(c),0);
   }
-  // 총점 기준 종합 지원강도 등급 (비율 기반). minTotal=전체 문항 수(모두 보기1 선택 시 최소점)
+  // 총점 기준 종합 지원강도 수준 (비율 기반). minTotal=전체 문항 수(모두 보기1 선택 시 최소점)
   function supportLevel(total,maxTotal){
     const minTotal=state.questions.length;
     const span=Math.max(1,maxTotal-minTotal);
@@ -1540,7 +1540,7 @@
     return{label:'3단계 · 중증(전면) 지원',desc:'전반적으로 전면적인 지원이 필요한 수준',color:'#dc2626'};
   }
 
-  // 등급별 점수 구간 계산 (supportLevel 기준과 동일: 비율 0.34 / 0.67 경계)
+  // 수준별 점수 구간 계산 (supportLevel 기준과 동일: 비율 0.34 / 0.67 경계)
   function supportBands(){
     const minT=state.questions.length;      // 모든 문항 보기1 = 최소점
     const maxT=maxTotalScore();              // 모든 문항 최고 보기 = 만점
@@ -1553,7 +1553,7 @@
       {label:'3단계 · 중증(전면) 지원', min:b2, max:maxT, color:'#dc2626', desc:'전면적 지원'},
     ];
   }
-  // 대시보드 등급 기준표 렌더
+  // 대시보드 수준 기준표 렌더
   function renderSupportBands(){
     const el=document.getElementById("support-bands-table");if(!el)return;
     const bands=supportBands();
@@ -1598,7 +1598,7 @@
     const totals=list.map(x=>x.total);
     const avg=(totals.reduce((a,b)=>a+b,0)/count).toFixed(1);
     const maxV=totals[0],minV=totals[count-1];
-    // 등급별 인원
+    // 수준별 인원
     const bandCount={경도:0,중등도:0,중증:0};
     list.forEach(x=>{if(x.grade.label.includes('경도'))bandCount.경도++;else if(x.grade.label.includes('중등도'))bandCount.중등도++;else bandCount.중증++;});
     // 상위 25% (지원 우선순위 그룹)
@@ -1612,7 +1612,7 @@
       <div class="bg-emerald-50 rounded-xl p-2"><p class="text-[9px] text-emerald-500 font-bold">최저</p><p class="text-sm font-bold text-emerald-600">${minV}</p></div>
       <div class="bg-slate-50 rounded-xl p-2"><p class="text-[9px] text-slate-400 font-bold">만점</p><p class="text-sm font-bold text-slate-900">${maxTotal}</p></div>
     </div>`;
-    // 등급 분포 막대
+    // 수준 분포 막대
     html+=`<div class="space-y-1">`;
     [['중증','#dc2626',bandCount.중증],['중등도','#d97706',bandCount.중등도],['경도','#059669',bandCount.경도]].forEach(([lab,col,c])=>{
       const pct=((c/count)*100).toFixed(0);
@@ -1625,7 +1625,7 @@
     html+=`</div></div>`;
     // 전체 순위 표
     html+=`<details class="pt-1"><summary class="text-[11px] font-bold text-slate-600 cursor-pointer">📋 전체 순위표 보기 (${count}명)</summary>`;
-    html+=`<div class="overflow-x-auto mt-2"><table class="w-full text-[10px] border-collapse"><thead><tr class="bg-slate-100"><th class="border border-slate-200 p-1">순위</th><th class="border border-slate-200 p-1">성명</th><th class="border border-slate-200 p-1">생활실</th><th class="border border-slate-200 p-1">총점</th><th class="border border-slate-200 p-1">등급</th><th class="border border-slate-200 p-1">상위%</th></tr></thead><tbody>`;
+    html+=`<div class="overflow-x-auto mt-2"><table class="w-full text-[10px] border-collapse"><thead><tr class="bg-slate-100"><th class="border border-slate-200 p-1">순위</th><th class="border border-slate-200 p-1">성명</th><th class="border border-slate-200 p-1">생활실</th><th class="border border-slate-200 p-1">총점</th><th class="border border-slate-200 p-1">수준</th><th class="border border-slate-200 p-1">상위%</th></tr></thead><tbody>`;
     list.forEach(x=>{html+=`<tr class="text-center"><td class="border border-slate-200 p-1 font-bold">${x.rank}</td><td class="border border-slate-200 p-1">${escapeHtml(x.name)}</td><td class="border border-slate-200 p-1">${escapeHtml(x.room)}</td><td class="border border-slate-200 p-1 font-mono font-bold">${x.total}/${x.maxTotal}</td><td class="border border-slate-200 p-1" style="color:${x.grade.color};font-weight:700">${x.grade.label.split(' · ')[1]||x.grade.label}</td><td class="border border-slate-200 p-1">${x.topPct}%</td></tr>`;});
     html+=`</tbody></table></div></details>`;
     panel.innerHTML=html;
@@ -1641,7 +1641,7 @@
     let html=`<div style="padding:9mm 8mm;color:#0f172a;-webkit-print-color-adjust:exact;print-color-adjust:exact;">`;
     html+=`<div style="text-align:center;margin-bottom:3mm;"><div style="font-size:17px;font-weight:800;letter-spacing:2px;">ADL 지원강도 종합 순위표</div><div style="font-size:10px;color:#475569;margin-top:1mm;">중증장애인 거주시설 쉼터　|　완료 ${count}명　|　평균 ${avg}/${maxTotal}　|　작성일 ${today}</div><div style="border-bottom:2px solid #0f172a;margin-top:2mm;"></div></div>`;
     html+=`<table style="width:100%;border-collapse:collapse;font-size:11px;"><tr>`+
-      ['순위','성명','생활실','총점','지원강도 등급','상위%'].map(h=>`<th style="border:${bd};background:#1e293b;color:#fff;padding:6px;font-weight:700;">${h}</th>`).join('')+`</tr>`;
+      ['순위','성명','생활실','총점','지원강도 수준','상위%'].map(h=>`<th style="border:${bd};background:#1e293b;color:#fff;padding:6px;font-weight:700;">${h}</th>`).join('')+`</tr>`;
     list.forEach((x,i)=>{const zebra=i%2?'background:#f8fafc;':'';html+=`<tr style="${zebra}"><td style="border:${bd};padding:5px;text-align:center;font-weight:700;">${x.rank}</td><td style="border:${bd};padding:5px;text-align:center;">${escapeHtml(x.name)}</td><td style="border:${bd};padding:5px;text-align:center;">${escapeHtml(x.room)}</td><td style="border:${bd};padding:5px;text-align:center;font-weight:700;">${x.total}/${x.maxTotal}</td><td style="border:${bd};padding:5px;text-align:center;color:${x.grade.color};font-weight:700;">${escapeHtml(x.grade.label)}</td><td style="border:${bd};padding:5px;text-align:center;">${x.topPct}%</td></tr>`;});
     html+=`</table></div>`;
     sheet.innerHTML=html;
@@ -2216,8 +2216,8 @@
     });
     html+=`<tr style="background:#f1f5f9;"><td colspan="2" style="border:${bd};height:10mm;text-align:center;font-weight:700;">총점</td><td style="border:${bd};"></td></tr>`;
     html+=`</table>`;
-    // 등급
-    html+=`<div style="border:${bd};height:10mm;margin-top:3mm;padding:6px;font-size:11px;font-weight:700;">종합 지원강도 등급 :</div>`;
+    // 수준
+    html+=`<div style="border:${bd};height:10mm;margin-top:3mm;padding:6px;font-size:11px;font-weight:700;">종합 지원강도 수준 :</div>`;
     // 소견
     html+=`<p style="font-weight:700;font-size:12px;border-left:4px solid #000;padding-left:6px;margin:3mm 0 2mm;">■ 종합 임상 소견</p>`;
     html+=`<div style="border:${bd};height:33mm;"></div>`;
