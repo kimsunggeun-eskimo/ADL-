@@ -127,7 +127,12 @@
       /* 문항지 인쇄 모드: 본문 숨기고 문항지만 노출 */
       body.printing-questions #main-content { display: none !important; }
       body.printing-questions #question-print-sheet { display: block !important; }
+      /* 명단 인쇄는 가로(landscape) 한 페이지로 */
+      body.printing-roster #main-content { display: none !important; }
+      body.printing-roster #question-print-sheet { display: block !important; }
+      body.printing-roster { }
     }
+    @page roster { size: A4 landscape; margin: 10mm; }
     /* 모달 스크롤 */
     #resident-modal .modal-body { max-height: 70vh; overflow-y: auto; }
     /* 버튼 최소 터치 타겟 */
@@ -557,6 +562,7 @@
                   </tr>
                 </tbody>
               </table>
+              <div id="rep-support-level" class="border border-black p-2 bg-slate-50 text-[10px] leading-relaxed"></div>
               <div>
                 <p class="font-bold text-xs border-l-4 border-black pl-2 mb-2">■ 종합 임상 소견</p>
                 <div id="rep-overall-clinical-opinion" class="border border-black p-3 bg-slate-50 min-h-[80px] text-left leading-relaxed text-[10px]">대기 중...</div>
@@ -1398,7 +1404,7 @@
     ['eating','snacking','mobility','water'].forEach(cat=>{
       const descEl=document.getElementById(`rep-desc-${cat}`);
       const scoreEl=document.getElementById(`rep-score-${cat}`);
-      const max=cat==='water'?24:30;
+      const max=maxCategoryScore(cat);
       const score=calculateCategoryScore(resId,cat);
       total+=score;
       scoreEl.innerText=`${score}/${max}`;
@@ -1407,8 +1413,21 @@
       const shown=ev.descOverride?.[cat] ?? autoText;
       descEl.innerHTML=`<div contenteditable="true" spellcheck="false" onblur="updateDescText('${cat}',this.innerText)" class="focus:outline-none focus:bg-yellow-50 rounded px-0.5 leading-relaxed cursor-text">${escapeHtml(shown)}</div>`;
     });
+    const maxTotal=maxTotalScore();
     const totalEl=document.getElementById("rep-score-total");
-    if(totalEl)totalEl.innerText=`${total}/114`;
+    if(totalEl)totalEl.innerText=`${total}/${maxTotal}`;
+    // 종합 지원강도 등급
+    const gradeEl=document.getElementById("rep-support-level");
+    if(gradeEl){
+      if(done){
+        const lv=supportLevel(total,maxTotal);
+        gradeEl.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+          <span><b>종합 지원강도 등급</b> : <b style="color:${lv.color}">${lv.label}</b> <span style="color:#555;">(${lv.desc})</span></span>
+          <span style="font-family:monospace;font-weight:700;">총점 ${total}/${maxTotal}</span></div>`;
+      }else{
+        gradeEl.innerHTML=`<span class="text-slate-400 text-[10px]">평가 완료 후 종합 지원강도 등급이 표시됩니다.</span>`;
+      }
+    }
     const opEl=document.getElementById("rep-overall-clinical-opinion");
     if(done){
       if(!ev.opinion)ev.opinion=generateAutoClinicalOpinion(resId);
@@ -1461,12 +1480,31 @@
     return t;
   }
 
+  // 점수 = 선택한 보기의 순번 (보기1=1점 … 보기2=2점 … 지원강도가 높을수록 높은 점수). 기타/미응답=0
   function calculateCategoryScore(resId,cat){
     const ev=state.evaluations[resId];if(!ev||!ev.scores)return 0;
     return state.questions.filter(q=>q.category===cat).reduce((s,q)=>{
       const v=ev.scores[q.id];
-      return s+(v==='opt1'?3:v==='opt2'?2:v==='opt3'?1:0);
+      if(v==null||v==='etc')return s;
+      const idx=q.options.findIndex(o=>o.value===v);
+      return s+(idx>=0?idx+1:0);
     },0);
+  }
+  // 영역의 만점 = 각 문항 보기 개수의 합 (보기3개 문항이면 3점 만점)
+  function maxCategoryScore(cat){
+    return state.questions.filter(q=>q.category===cat).reduce((s,q)=>s+(q.options.length||0),0);
+  }
+  function maxTotalScore(){
+    return ['eating','snacking','mobility','water'].reduce((s,c)=>s+maxCategoryScore(c),0);
+  }
+  // 총점 기준 종합 지원강도 등급 (비율 기반 → 문항 수가 달라져도 작동)
+  function supportLevel(total,maxTotal){
+    const minTotal=state.questions.length; // 모든 문항 보기1 선택 시 최소점
+    const span=Math.max(1,maxTotal-minTotal);
+    const r=(total-minTotal)/span; // 0(최저 지원) ~ 1(최고 지원)
+    if(r<0.34)return{label:'1단계 · 경도 지원',desc:'부분적·간헐적 지원이 필요한 수준',color:'#059669'};
+    if(r<0.67)return{label:'2단계 · 중등도 지원',desc:'상당한 수준의 일상 지원이 필요한 수준',color:'#d97706'};
+    return{label:'3단계 · 중증(전면) 지원',desc:'전반적으로 전면적인 지원이 필요한 수준',color:'#dc2626'};
   }
 
   // 결과지 서술 문장 조합 (기타 선택 시 직접 입력한 내용을 사용)
@@ -1778,44 +1816,59 @@
     container.appendChild(addBtn);
   }
 
-  // 사진 양식의 문항지(인쇄 전용) 생성 — 번호/질문(선정이유)/보기들/점수
+  // 전문 양식의 문항지(인쇄 전용) 생성 — 번호/질문(선정이유)/보기들/점수, 영역별 1페이지
   function buildQuestionPrintSheet(){
     const sheet=document.getElementById("question-print-sheet");if(!sheet)return;
     const catLabels={eating:'식사',snacking:'간식',mobility:'이동',water:'물'};
     const cats=['eating','snacking','mobility','water'];
     const today=new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric'});
     const active=cats.filter(cat=>state.questions.some(q=>q.category===cat));
+    const bd='1px solid #334155';
     let html='';
     active.forEach((cat,idx)=>{
       const qs=state.questions.filter(q=>q.category===cat).slice().sort((a,b)=>(a.number||0)-(b.number||0));
       const maxOpt=Math.max(1,...qs.map(q=>q.options.length));
       const optW=(60/maxOpt).toFixed(2);
-      // 각 영역을 한 장(한 페이지)씩 인쇄
       const brk=idx<active.length-1?'page-break-after:always;':'';
-      html+=`<div style="padding:8mm 6mm;color:#000;${brk}">`;
-      html+=`<h1 style="text-align:center;font-size:16px;font-weight:800;letter-spacing:2px;margin:0 0 2mm;">ADL 지원강도 평가 문항지 · ${escapeHtml(catLabels[cat])}</h1>`;
-      html+=`<p style="text-align:right;font-size:10px;color:#333;margin:0 0 4mm;">작성일: ${today}　성명: ___________</p>`;
+      html+=`<div style="padding:9mm 8mm;color:#0f172a;-webkit-print-color-adjust:exact;print-color-adjust:exact;${brk}">`;
+      // 제목 블록
+      html+=`<div style="text-align:center;margin-bottom:2mm;">`;
+      html+=`<div style="font-size:17px;font-weight:800;letter-spacing:2px;">ADL 수행에 따라 지원되는 강도의 연관성에 대한 평가</div>`;
+      html+=`<div style="font-size:12px;font-weight:700;color:#1e293b;margin-top:1mm;">[ ${escapeHtml(catLabels[cat])} 영역 ]</div>`;
+      html+=`</div>`;
+      // 성명/평가일 정보 바
+      html+=`<table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:3mm;">`+
+        `<tr>`+
+        `<td style="border:${bd};background:#1e293b;color:#fff;padding:5px;width:14%;text-align:center;font-weight:700;">성명</td>`+
+        `<td style="border:${bd};padding:5px;width:36%;"></td>`+
+        `<td style="border:${bd};background:#1e293b;color:#fff;padding:5px;width:16%;text-align:center;font-weight:700;">평가일</td>`+
+        `<td style="border:${bd};padding:5px;">${today}</td>`+
+        `</tr></table>`;
+      // 문항 표
       html+=`<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:11px;page-break-inside:auto;">`;
-      html+=`<colgroup><col style="width:7%"><col style="width:33%">`;
+      html+=`<colgroup><col style="width:6%"><col style="width:34%">`;
       for(let i=0;i<maxOpt;i++)html+=`<col style="width:${optW}%">`;
       html+=`</colgroup>`;
       html+=`<tr>`+
-        `<th colspan="2" style="border:1px solid #000;background:#d9d9d9;padding:6px;text-align:left;font-weight:700;">${escapeHtml(catLabels[cat])}(선정 이유)</th>`+
-        `<th colspan="${maxOpt}" style="border:1px solid #000;background:#d9d9d9;padding:6px;text-align:left;font-weight:700;">수행에 따라 지원하는 강도가 달라짐.</th>`+
+        `<th colspan="2" style="border:${bd};background:#1e293b;color:#fff;padding:7px;text-align:center;font-weight:700;">${escapeHtml(catLabels[cat])} (선정 이유)</th>`+
+        `<th colspan="${maxOpt}" style="border:${bd};background:#1e293b;color:#fff;padding:7px;text-align:center;font-weight:700;">수행에 따라 지원하는 강도가 달라짐</th>`+
         `</tr>`;
-      qs.forEach(q=>{
-        html+=`<tr style="page-break-inside:avoid;">`;
-        html+=`<td style="border:1px solid #000;padding:6px;text-align:center;font-weight:700;vertical-align:top;">${q.number||''}</td>`;
-        html+=`<td style="border:1px solid #000;padding:6px;vertical-align:top;">${escapeHtml(q.title)}${q.description?`<br><span style="color:#444;">(${escapeHtml(q.description)})</span>`:''}</td>`;
+      qs.forEach((q,ri)=>{
+        const zebra=ri%2?'background:#f8fafc;':'';
+        html+=`<tr style="page-break-inside:avoid;${zebra}">`;
+        html+=`<td style="border:${bd};padding:6px;text-align:center;font-weight:700;vertical-align:top;background:#e2e8f0;">${q.number||''}</td>`;
+        html+=`<td style="border:${bd};padding:6px 8px;vertical-align:top;font-weight:600;">${escapeHtml(q.title)}${q.description?`<br><span style="color:#64748b;font-weight:400;font-size:10px;">(${escapeHtml(q.description)})</span>`:''}</td>`;
         for(let i=0;i<maxOpt;i++){
           const o=q.options[i];
-          html+=`<td style="border:1px solid #000;padding:6px;vertical-align:top;">${o?`${i+1}. ${escapeHtml(o.label)}`:''}</td>`;
+          html+=`<td style="border:${bd};padding:6px;vertical-align:top;">${o?`<b>${i+1}.</b> ${escapeHtml(o.label)}`:''}</td>`;
         }
         html+=`</tr>`;
       });
-      // 점수(합계) 기입란 — 넉넉한 높이
-      html+=`<tr><td colspan="2" style="border:1px solid #000;padding:9px;text-align:center;font-weight:700;background:#f0f0f0;height:14mm;">점수(합계)</td><td colspan="${maxOpt}" style="border:1px solid #000;padding:9px;height:14mm;"></td></tr>`;
-      html+=`</table></div>`;
+      // 점수(합계) 기입란
+      html+=`<tr><td colspan="2" style="border:${bd};padding:9px;text-align:center;font-weight:700;background:#cbd5e1;height:14mm;">점수 (합계)</td><td colspan="${maxOpt}" style="border:${bd};padding:9px;height:14mm;"></td></tr>`;
+      html+=`</table>`;
+      html+=`<div style="text-align:right;font-size:9px;color:#64748b;margin-top:3mm;">중증장애인 거주시설 쉼터</div>`;
+      html+=`</div>`;
     });
     sheet.innerHTML=html;
   }
@@ -1975,7 +2028,7 @@
     return rooms.sort((a,b)=>{const ka=key(a),kb=key(b);return ka[0]-kb[0]||ka[1]-kb[1]||ka[2].localeCompare(kb[2]);});
   }
 
-  // 거주실별 대상자 명단(사진 양식) 인쇄 — 앱에 등록된 거주인 데이터로 자동 생성
+  // 거주실별 대상자 명단(전문 양식) 인쇄 — 가로 한 페이지, 앱 데이터로 자동 생성
   function printResidentRoster(){
     const sheet=document.getElementById("question-print-sheet");if(!sheet)return;
     const rooms=sortedRoomList();
@@ -1984,29 +2037,43 @@
     if(total===0){alert('등록된 거주인이 없습니다.');return;}
     const byRoom={};rooms.forEach(rm=>{byRoom[rm]=state.residents.filter(r=>(r.room||'').trim()===rm).map(r=>r.name);});
     const maxRows=Math.max(1,...rooms.map(rm=>byRoom[rm].length));
-    let html=`<div style="padding:8mm 6mm;color:#000;">`;
-    html+=`<h1 style="text-align:center;font-size:17px;font-weight:800;letter-spacing:2px;margin:0 0 5mm;">거주실별 대상자 명단 (총 ${total}명)</h1>`;
-    html+=`<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:11px;">`;
-    // 헤더: 번호칸 + 생활실들
-    html+=`<colgroup><col style="width:6%">`;
-    rooms.forEach(()=>html+=`<col style="width:${(94/Math.max(1,rooms.length)).toFixed(2)}%">`);
+    const today=new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric'});
+    // 열·행이 많으면 글자 축소하여 한 페이지에 맞춤
+    const fs=rooms.length>8||maxRows>10?10:11;
+    const pad=maxRows>10?'4px':'6px';
+    const bd='1px solid #334155';
+    let html=`<div style="page:roster;padding:4mm 2mm;color:#0f172a;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-family:inherit;">`;
+    // 제목 블록
+    html+=`<div style="text-align:center;margin-bottom:4mm;">`;
+    html+=`<div style="font-size:18px;font-weight:800;letter-spacing:3px;">거주실별 대상자 명단</div>`;
+    html+=`<div style="font-size:10px;color:#475569;margin-top:2px;">중증장애인 거주시설 쉼터　|　총 ${total}명　|　작성일 ${today}</div>`;
+    html+=`<div style="border-bottom:2px solid #0f172a;margin-top:3mm;"></div></div>`;
+    html+=`<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:${fs}px;">`;
+    html+=`<colgroup><col style="width:5%">`;
+    rooms.forEach(()=>html+=`<col style="width:${(95/Math.max(1,rooms.length)).toFixed(2)}%">`);
     html+=`</colgroup>`;
-    html+=`<tr><th style="border:1px solid #000;background:#d9d9d9;padding:6px;"></th>`;
-    rooms.forEach(rm=>html+=`<th style="border:1px solid #000;background:#d9d9d9;padding:6px;font-weight:700;">${escapeHtml(rm)}</th>`);
+    // 헤더 (짙은 색)
+    html+=`<tr><th style="border:${bd};background:#1e293b;color:#fff;padding:${pad};font-weight:700;">연번</th>`;
+    rooms.forEach(rm=>html+=`<th style="border:${bd};background:#1e293b;color:#fff;padding:${pad};font-weight:700;">${escapeHtml(rm)}</th>`);
     html+=`</tr>`;
     for(let i=0;i<maxRows;i++){
-      html+=`<tr><td style="border:1px solid #000;padding:6px;text-align:center;font-weight:700;background:#f5f5f5;">${i+1}</td>`;
-      rooms.forEach(rm=>html+=`<td style="border:1px solid #000;padding:6px;text-align:center;">${byRoom[rm][i]?escapeHtml(byRoom[rm][i]):''}</td>`);
+      const zebra=i%2?'background:#f1f5f9;':'';
+      html+=`<tr><td style="border:${bd};padding:${pad};text-align:center;font-weight:700;background:#e2e8f0;">${i+1}</td>`;
+      rooms.forEach(rm=>html+=`<td style="border:${bd};padding:${pad};text-align:center;${zebra}">${byRoom[rm][i]?escapeHtml(byRoom[rm][i]):''}</td>`);
       html+=`</tr>`;
     }
+    // 각 생활실 인원 합계 행
+    html+=`<tr><td style="border:${bd};padding:${pad};text-align:center;font-weight:700;background:#cbd5e1;">계</td>`;
+    rooms.forEach(rm=>html+=`<td style="border:${bd};padding:${pad};text-align:center;font-weight:700;background:#e2e8f0;">${byRoom[rm].length}</td>`);
+    html+=`</tr>`;
     html+=`</table>`;
     if(noRoom.length){
-      html+=`<p style="margin-top:4mm;font-size:10px;color:#555;">※ 생활실 미지정 ${noRoom.length}명: ${noRoom.map(r=>escapeHtml(r.name)).join(', ')}</p>`;
+      html+=`<p style="margin-top:3mm;font-size:9px;color:#64748b;">※ 생활실 미지정 ${noRoom.length}명: ${noRoom.map(r=>escapeHtml(r.name)).join(', ')}</p>`;
     }
     html+=`</div>`;
     sheet.innerHTML=html;
-    document.body.classList.add('printing-questions');
-    const cleanup=()=>{document.body.classList.remove('printing-questions');window.removeEventListener('afterprint',cleanup);};
+    document.body.classList.add('printing-roster');
+    const cleanup=()=>{document.body.classList.remove('printing-roster');window.removeEventListener('afterprint',cleanup);};
     window.addEventListener('afterprint',cleanup);
     setTimeout(()=>window.print(),60);
   }
