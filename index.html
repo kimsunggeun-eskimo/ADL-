@@ -525,26 +525,35 @@
               <table class="w-full border-collapse border border-black text-[10px]">
                 <thead>
                   <tr class="bg-slate-100">
-                    <th class="w-[18%] border border-black p-1 font-bold">영역</th>
-                    <th class="border border-black p-1 font-bold">평가 내용</th>
+                    <th class="w-[14%] border border-black p-1 font-bold">영역</th>
+                    <th class="border border-black p-1 font-bold">종합의견</th>
+                    <th class="w-[14%] border border-black p-1 font-bold">점수</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
-                    <td class="border border-black text-center p-2 font-bold bg-slate-50">식사<br><span id="rep-score-eating" class="text-[9px] text-indigo-700 font-mono">(0/30)</span></td>
+                    <td class="border border-black text-center p-2 font-bold bg-slate-50">식사</td>
                     <td id="rep-desc-eating" class="border border-black p-2 text-left leading-relaxed">대기...</td>
+                    <td id="rep-score-eating" class="border border-black text-center p-2 font-bold font-mono text-indigo-700">0/30</td>
                   </tr>
                   <tr>
-                    <td class="border border-black text-center p-2 font-bold bg-slate-50">간식<br><span id="rep-score-snacking" class="text-[9px] text-indigo-700 font-mono">(0/30)</span></td>
+                    <td class="border border-black text-center p-2 font-bold bg-slate-50">간식</td>
                     <td id="rep-desc-snacking" class="border border-black p-2 text-left leading-relaxed">대기...</td>
+                    <td id="rep-score-snacking" class="border border-black text-center p-2 font-bold font-mono text-indigo-700">0/30</td>
                   </tr>
                   <tr>
-                    <td class="border border-black text-center p-2 font-bold bg-slate-50">이동<br><span id="rep-score-mobility" class="text-[9px] text-indigo-700 font-mono">(0/30)</span></td>
+                    <td class="border border-black text-center p-2 font-bold bg-slate-50">이동</td>
                     <td id="rep-desc-mobility" class="border border-black p-2 text-left leading-relaxed">대기...</td>
+                    <td id="rep-score-mobility" class="border border-black text-center p-2 font-bold font-mono text-indigo-700">0/30</td>
                   </tr>
                   <tr>
-                    <td class="border border-black text-center p-2 font-bold bg-slate-50">물<br><span id="rep-score-water" class="text-[9px] text-indigo-700 font-mono">(0/24)</span></td>
+                    <td class="border border-black text-center p-2 font-bold bg-slate-50">물</td>
                     <td id="rep-desc-water" class="border border-black p-2 text-left leading-relaxed">대기...</td>
+                    <td id="rep-score-water" class="border border-black text-center p-2 font-bold font-mono text-indigo-700">0/24</td>
+                  </tr>
+                  <tr class="bg-slate-100">
+                    <td colspan="2" class="border border-black text-center p-2 font-bold">총점</td>
+                    <td id="rep-score-total" class="border border-black text-center p-2 font-bold font-mono text-indigo-700">0/114</td>
                   </tr>
                 </tbody>
               </table>
@@ -1385,17 +1394,21 @@
     document.getElementById("rep-birthdate").innerText=formatBirthdate(r.birthdate);
     document.getElementById("rep-diagnosis").innerText=r.diagnosis||"-";
     document.getElementById("rep-health").innerHTML=formatHealth(r.health);
+    let total=0;
     ['eating','snacking','mobility','water'].forEach(cat=>{
       const descEl=document.getElementById(`rep-desc-${cat}`);
       const scoreEl=document.getElementById(`rep-score-${cat}`);
       const max=cat==='water'?24:30;
       const score=calculateCategoryScore(resId,cat);
-      scoreEl.innerText=`(${score}/${max})`;
+      total+=score;
+      scoreEl.innerText=`${score}/${max}`;
       if(!done){descEl.innerHTML=`<span class='text-red-400 italic text-[10px]'>미완료 문항이 있습니다.</span>`;return;}
       const autoText=buildCategorySentences(resId,cat).join(" ");
       const shown=ev.descOverride?.[cat] ?? autoText;
       descEl.innerHTML=`<div contenteditable="true" spellcheck="false" onblur="updateDescText('${cat}',this.innerText)" class="focus:outline-none focus:bg-yellow-50 rounded px-0.5 leading-relaxed cursor-text">${escapeHtml(shown)}</div>`;
     });
+    const totalEl=document.getElementById("rep-score-total");
+    if(totalEl)totalEl.innerText=`${total}/114`;
     const opEl=document.getElementById("rep-overall-clinical-opinion");
     if(done){
       if(!ev.opinion)ev.opinion=generateAutoClinicalOpinion(resId);
