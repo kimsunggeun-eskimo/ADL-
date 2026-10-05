@@ -132,7 +132,7 @@
       body.printing-roster #question-print-sheet { display: block !important; }
       body.printing-roster { }
     }
-    @page roster { size: A4 landscape; margin: 10mm; }
+    @page roster { size: A4 portrait; margin: 10mm; }
     /* 모달 스크롤 */
     #resident-modal .modal-body { max-height: 70vh; overflow-y: auto; }
     /* 버튼 최소 터치 타겟 */
@@ -1931,12 +1931,10 @@
       html+=`<div style="font-size:17px;font-weight:800;letter-spacing:2px;">ADL 수행에 따라 지원되는 강도의 연관성에 대한 평가</div>`;
       html+=`<div style="font-size:12px;font-weight:700;color:#1e293b;margin-top:1mm;">[ ${escapeHtml(catLabels[cat])} 영역 ]</div>`;
       html+=`</div>`;
-      // 성명 정보 바
-      html+=`<table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:3mm;">`+
-        `<tr>`+
-        `<td style="border:${bd};background:#1e293b;color:#fff;padding:5px;width:14%;text-align:center;font-weight:700;">성명</td>`+
-        `<td style="border:${bd};padding:5px;"></td>`+
-        `</tr></table>`;
+      // 성명 (짧게, 우측 정렬)
+      html+=`<div style="text-align:right;margin-bottom:2mm;font-size:12px;font-weight:600;">성명 <span style="display:inline-block;border-bottom:1px solid #334155;width:40mm;">&nbsp;</span></div>`;
+      // 세로 한 페이지를 꽉 채우도록 데이터 행 높이 자동 계산
+      const dataRowH=Math.max(11,Math.min(30,Math.round(195/Math.max(1,qs.length))));
       // 문항 표
       html+=`<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:11px;page-break-inside:auto;">`;
       html+=`<colgroup><col style="width:6%"><col style="width:34%">`;
@@ -1949,11 +1947,11 @@
       qs.forEach((q,ri)=>{
         const zebra=ri%2?'background:#f8fafc;':'';
         html+=`<tr style="page-break-inside:avoid;${zebra}">`;
-        html+=`<td style="border:${bd};padding:6px;text-align:center;font-weight:700;vertical-align:top;background:#e2e8f0;">${q.number||''}</td>`;
-        html+=`<td style="border:${bd};padding:6px 8px;vertical-align:top;font-weight:600;">${escapeHtml(q.title)}${q.description?`<br><span style="color:#64748b;font-weight:400;font-size:10px;">(${escapeHtml(q.description)})</span>`:''}</td>`;
+        html+=`<td style="border:${bd};padding:6px;height:${dataRowH}mm;text-align:center;font-weight:700;vertical-align:top;background:#e2e8f0;">${q.number||''}</td>`;
+        html+=`<td style="border:${bd};padding:6px 8px;height:${dataRowH}mm;vertical-align:top;font-weight:600;">${escapeHtml(q.title)}${q.description?`<br><span style="color:#64748b;font-weight:400;font-size:10px;">(${escapeHtml(q.description)})</span>`:''}</td>`;
         for(let i=0;i<maxOpt;i++){
           const o=q.options[i];
-          html+=`<td style="border:${bd};padding:6px;vertical-align:top;">${o?`<b>${i+1}.</b> ${escapeHtml(o.label)}`:''}</td>`;
+          html+=`<td style="border:${bd};padding:6px;height:${dataRowH}mm;vertical-align:top;">${o?`<b>${i+1}.</b> ${escapeHtml(o.label)}`:''}</td>`;
         }
         html+=`</tr>`;
       });
@@ -2132,10 +2130,10 @@
     const maxRows=Math.max(1,...rooms.map(rm=>byRoom[rm].length));
     const today=new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric'});
     const bd='1px solid #334155';
-    // 가로 A4 한 페이지(약 170mm)를 꽉 채우도록 행 높이·글자 크기 자동 계산
+    // 세로 A4 한 페이지를 꽉 채우도록 행 높이·글자 크기 자동 계산
     const totalRows=maxRows+2; // 헤더 + 데이터 + 계
-    const rowH=Math.max(9,Math.min(28,Math.round(170/totalRows))); // mm
-    const fs=rowH>=22?18:rowH>=16?16:rowH>=12?14:rooms.length>8?11:12;
+    const rowH=Math.max(9,Math.min(38,Math.round(245/totalRows))); // mm
+    const fs=rooms.length>8?12:rowH>=30?17:rowH>=20?15:13;
     const cellBase=`border:${bd};height:${rowH}mm;vertical-align:middle;text-align:center;`;
     let html=`<div style="page:roster;padding:4mm 3mm;color:#0f172a;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-family:inherit;">`;
     // 제목 블록
