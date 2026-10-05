@@ -380,8 +380,8 @@
           <span class="text-sm">⚙️</span> 데이터 백업 및 관리
         </summary>
         <div class="space-y-2 pt-3">
-          <button onclick="importResidentRoster()" class="w-full py-2.5 bg-indigo-600 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5">
-            <span class="text-xs">📋</span> 거주인 명단 일괄 등록 (53명)
+          <button onclick="printResidentRoster()" class="w-full py-2.5 bg-slate-900 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5">
+            <span class="text-xs">📋</span> 거주실별 명단 인쇄
           </button>
           <button onclick="exportBackupData()" class="w-full py-2.5 bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5">
             <span class="text-xs">⬇️</span> 백업 내보내기 (.json)
@@ -710,6 +710,9 @@
         거주인 명단 (<span id="total-badge" class="text-indigo-600 font-mono">0</span>)
       </h3>
       <div class="flex items-center gap-2">
+        <button id="select-mode-btn" onclick="toggleSelectMode()" class="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold">
+          <span class="text-xs">☑️</span> 선택삭제
+        </button>
         <button onclick="toggleAddResidentModal(true)" class="flex items-center gap-1 px-2.5 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-xs font-bold">
           <span class="text-xs">➕</span> 등록
         </button>
@@ -717,6 +720,13 @@
           <span class="text-base">✕</span>
         </button>
       </div>
+    </div>
+    <!-- 선택삭제 액션바 -->
+    <div id="select-action-bar" class="hidden sticky top-[53px] z-10 bg-rose-50 border-b border-rose-100 px-3 py-2 flex items-center justify-between">
+      <label class="flex items-center gap-1.5 text-xs font-bold text-slate-700 cursor-pointer">
+        <input type="checkbox" id="select-all-box" onclick="toggleSelectAll(this.checked)" class="w-4 h-4 accent-rose-600"> 전체 선택
+      </label>
+      <button onclick="deleteSelectedResidents()" class="px-3 py-1.5 bg-rose-600 text-white text-xs font-bold rounded-lg">🗑️ 선택 삭제 (<span id="select-count">0</span>)</button>
     </div>
     <!-- 검색 -->
     <div class="p-3 border-b border-slate-100">
@@ -811,7 +821,7 @@
 
   <script>
   // ======== app.js (모바일 최적화 버전) ========
-  const state={residents:[],evaluations:{},questions:[],currentTab:'dashboard',currentResidentId:null,currentCategorySubtab:'eating',filterStatus:'all',evalSubtab:'write',statsCategory:'eating',facilityReportCategory:'eating',questionsCategory:'eating',charts:[],snapshots:[],compareCharts:[],facilityNotes:{}};
+  const state={residents:[],evaluations:{},questions:[],currentTab:'dashboard',currentResidentId:null,currentCategorySubtab:'eating',filterStatus:'all',evalSubtab:'write',statsCategory:'eating',facilityReportCategory:'eating',questionsCategory:'eating',charts:[],snapshots:[],compareCharts:[],facilityNotes:{},selectMode:false,selectedIds:[]};
   let _snapshotsLoaded=false;
 
   // 사용자 입력값을 innerHTML에 삽입하기 전 XSS 방지용 이스케이프
@@ -1020,6 +1030,24 @@
       const isSelected=r.id===state.currentResidentId;
       const done=isEvaluationFinished(r.id);
       const item=document.createElement("div");
+      if(state.selectMode){
+        const checked=state.selectedIds.includes(r.id);
+        item.className="p-3.5 flex items-center gap-2.5 border-l-4 border-transparent hover:bg-slate-50";
+        item.innerHTML=`
+          <input type="checkbox" ${checked?'checked':''} onclick="toggleResidentSelect('${r.id}',this.checked)" class="w-5 h-5 accent-rose-600 flex-shrink-0">
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-bold text-slate-900">${escapeHtml(r.name)}</span>
+              <span class="text-[10px] text-slate-400">${r.gender?escapeHtml(r.gender):''}${r.gender&&r.birthdate?'/':''}${r.birthdate?calculateAge(r.birthdate)+'세':''}</span>
+            </div>
+            <div class="flex items-center gap-1.5 mt-0.5">
+              <span class="text-[10px] px-1.5 bg-slate-100 text-slate-600 rounded">${escapeHtml(r.room||'생활실 미지정')}</span>
+              <span class="text-[10px] text-slate-400 truncate max-w-[120px]">${escapeHtml(r.diagnosis||'')}</span>
+            </div>
+          </div>`;
+        container.appendChild(item);
+        return;
+      }
       item.className=`p-3.5 cursor-pointer flex items-center justify-between border-l-4 ${isSelected?'bg-indigo-50 border-indigo-600':'border-transparent hover:bg-slate-50'}`;
       item.onclick=()=>{selectResident(r.id);closeResidentPanel();};
       item.innerHTML=`
@@ -1038,7 +1066,61 @@
         </div>`;
       container.appendChild(item);
     });
+    updateSelectCount();
   }
+
+  // ===== 거주인 선택 삭제(일괄) =====
+  function toggleSelectMode(){
+    state.selectMode=!state.selectMode;
+    state.selectedIds=[];
+    const bar=document.getElementById("select-action-bar");
+    const btn=document.getElementById("select-mode-btn");
+    if(bar)bar.classList.toggle("hidden",!state.selectMode);
+    if(btn)btn.className=state.selectMode
+      ? "flex items-center gap-1 px-2.5 py-1.5 bg-rose-600 text-white rounded-lg text-xs font-bold"
+      : "flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold";
+    const allBox=document.getElementById("select-all-box");if(allBox)allBox.checked=false;
+    renderResidentSidebar();
+  }
+  function toggleResidentSelect(id,checked){
+    if(checked){if(!state.selectedIds.includes(id))state.selectedIds.push(id);}
+    else{state.selectedIds=state.selectedIds.filter(x=>x!==id);}
+    updateSelectCount();
+  }
+  function toggleSelectAll(checked){
+    const query=(document.getElementById("resident-search-input")||{}).value?.toLowerCase().trim()||"";
+    const filtered=state.residents.filter(r=>{
+      const m=r.name.toLowerCase().includes(query)||(r.room||"").toLowerCase().includes(query)||(r.diagnosis||"").toLowerCase().includes(query);
+      const done=isEvaluationFinished(r.id);
+      if(state.filterStatus==='done')return m&&done;
+      if(state.filterStatus==='pending')return m&&!done;
+      return m;
+    });
+    state.selectedIds=checked?filtered.map(r=>r.id):[];
+    renderResidentSidebar();
+  }
+  function updateSelectCount(){
+    const c=document.getElementById("select-count");if(c)c.innerText=state.selectedIds.length;
+  }
+  async function deleteSelectedResidents(){
+    const ids=[...state.selectedIds];
+    if(ids.length===0){alert("삭제할 거주인을 선택하세요.");return;}
+    if(!confirm(`선택한 ${ids.length}명의 거주인과 평가 데이터를 삭제합니다.\n되돌릴 수 없습니다. 계속할까요?`))return;
+    ids.forEach(id=>{delete state.evaluations[id];});
+    state.residents=state.residents.filter(r=>!ids.includes(r.id));
+    if(window._fb){
+      try{setSyncStatus('loading');for(const id of ids){await window._fb.deleteResident(id);}setSyncStatus('ok');}
+      catch(e){setSyncStatus('error');console.error(e);}
+    }
+    saveResidentsState();saveEvaluationsState();
+    if(ids.includes(state.currentResidentId))state.currentResidentId=null;
+    state.selectedIds=[];state.selectMode=false;
+    const bar=document.getElementById("select-action-bar");if(bar)bar.classList.add("hidden");
+    const btn=document.getElementById("select-mode-btn");if(btn)btn.className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold";
+    loadDatabase();renderResidentSidebar();renderEvaluationView();
+    alert(`${ids.length}명 삭제 완료 ✅`);
+  }
+
 
   function filterResidents(){renderResidentSidebar();}
   function setFilterStatus(status){
@@ -1689,15 +1771,18 @@
     const catLabels={eating:'식사',snacking:'간식',mobility:'이동',water:'물'};
     const cats=['eating','snacking','mobility','water'];
     const today=new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric'});
-    let html=`<div style="padding:8mm 6mm;color:#000;">`;
-    html+=`<h1 style="text-align:center;font-size:17px;font-weight:800;letter-spacing:3px;margin:0 0 2mm;">ADL 지원강도 평가 문항지</h1>`;
-    html+=`<p style="text-align:right;font-size:10px;color:#333;margin:0 0 5mm;">작성일: ${today}　성명: ___________</p>`;
-    cats.forEach(cat=>{
+    const active=cats.filter(cat=>state.questions.some(q=>q.category===cat));
+    let html='';
+    active.forEach((cat,idx)=>{
       const qs=state.questions.filter(q=>q.category===cat).slice().sort((a,b)=>(a.number||0)-(b.number||0));
-      if(!qs.length)return;
       const maxOpt=Math.max(1,...qs.map(q=>q.options.length));
       const optW=(60/maxOpt).toFixed(2);
-      html+=`<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:11px;margin:0 0 7mm;page-break-inside:auto;">`;
+      // 각 영역을 한 장(한 페이지)씩 인쇄
+      const brk=idx<active.length-1?'page-break-after:always;':'';
+      html+=`<div style="padding:8mm 6mm;color:#000;${brk}">`;
+      html+=`<h1 style="text-align:center;font-size:16px;font-weight:800;letter-spacing:2px;margin:0 0 2mm;">ADL 지원강도 평가 문항지 · ${escapeHtml(catLabels[cat])}</h1>`;
+      html+=`<p style="text-align:right;font-size:10px;color:#333;margin:0 0 4mm;">작성일: ${today}　성명: ___________</p>`;
+      html+=`<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:11px;page-break-inside:auto;">`;
       html+=`<colgroup><col style="width:7%"><col style="width:33%">`;
       for(let i=0;i<maxOpt;i++)html+=`<col style="width:${optW}%">`;
       html+=`</colgroup>`;
@@ -1715,10 +1800,10 @@
         }
         html+=`</tr>`;
       });
-      html+=`<tr><td colspan="2" style="border:1px solid #000;padding:9px;text-align:center;font-weight:700;background:#f0f0f0;">점수</td><td colspan="${maxOpt}" style="border:1px solid #000;padding:9px;"></td></tr>`;
-      html+=`</table>`;
+      // 점수(합계) 기입란 — 넉넉한 높이
+      html+=`<tr><td colspan="2" style="border:1px solid #000;padding:9px;text-align:center;font-weight:700;background:#f0f0f0;height:14mm;">점수(합계)</td><td colspan="${maxOpt}" style="border:1px solid #000;padding:9px;height:14mm;"></td></tr>`;
+      html+=`</table></div>`;
     });
-    html+=`</div>`;
     sheet.innerHTML=html;
   }
 
@@ -1864,34 +1949,53 @@
     XLSX.writeFile(wb,`ADL_평가결과_${new Date().toISOString().slice(0,10)}.xlsx`);
   }
 
-  // 거주실별 대상자 명단 (총 53명) — 일괄 등록용
-  const RESIDENT_ROSTER={
-    "별관1호":["도민이","이정순","이리라","강순임","김경숙"],
-    "별관2호":["김수경","윤솔희","김유경","이형미","이효선","박근순"],
-    "별관3호":["이매화","최환희","김진옥","신은미","김지은","이신애"],
-    "301호":["김현희","박순희","이난초","이유란","이지란","조미현"],
-    "302호":["김은지","노민혜","성민순","신강자","이선애","정희경"],
-    "303호":["박경혜","신연정","신병희","유해인","이인숙","박명순"],
-    "201호":["박형우","이춘식","이오월","김원중","이동진","김평강"],
-    "202호":["김낙성","주재완","이수영","김복득","강건","이덕노"],
-    "203호":["한성진","이상일","김연준","이민혁","김휘철","문바울"]
-  };
-  // 명단 일괄 등록 — 이미 있는 이름(같은 생활실)은 건너뜀, 세부정보는 추후 각자 수정
-  async function importResidentRoster(){
-    const entries=[];
-    Object.entries(RESIDENT_ROSTER).forEach(([room,names])=>names.forEach(name=>entries.push({room,name})));
-    const existing=new Set(state.residents.map(r=>`${(r.name||'').trim()}|${(r.room||'').trim()}`));
-    if(!confirm(`거주실별 명단 ${entries.length}명을 등록합니다.\n이미 등록된 이름(같은 생활실)은 건너뜁니다.\n성별·생년월일 등 세부정보는 등록 후 각자 수정해 주세요.\n\n계속할까요?`))return;
-    let added=0,skipped=0,t=Date.now();
-    entries.forEach(({room,name})=>{
-      if(existing.has(`${name}|${room}`)){skipped++;return;}
-      state.residents.push({id:"res_"+(t++),name,gender:"",birthdate:"",diagnosis:"",room,health:"",notes:""});
-      added++;
-    });
-    try{setSyncStatus('loading');await saveResidentsState();setSyncStatus('ok');}
-    catch(e){setSyncStatus('error');console.error(e);}
-    loadDatabase();updateGlobalStats();
-    alert(`명단 등록 완료 ✅\n추가: ${added}명 / 건너뜀(중복): ${skipped}명\n\n다른 기기에도 자동 동기화됩니다.`);
+  // 거주실(생활실)을 보기 좋은 순서로 정렬: 별관 → 숫자 호실 오름차순 → 기타
+  function sortedRoomList(){
+    const rooms=[...new Set(state.residents.map(r=>(r.room||'').trim()).filter(Boolean))];
+    const key=room=>{
+      const bg=room.match(/별관\s*(\d+)/);
+      if(bg)return [0,parseInt(bg[1],10),room];
+      const num=room.match(/(\d+)/);
+      if(num)return [1,parseInt(num[1],10),room];
+      return [2,0,room];
+    };
+    return rooms.sort((a,b)=>{const ka=key(a),kb=key(b);return ka[0]-kb[0]||ka[1]-kb[1]||ka[2].localeCompare(kb[2]);});
+  }
+
+  // 거주실별 대상자 명단(사진 양식) 인쇄 — 앱에 등록된 거주인 데이터로 자동 생성
+  function printResidentRoster(){
+    const sheet=document.getElementById("question-print-sheet");if(!sheet)return;
+    const rooms=sortedRoomList();
+    const noRoom=state.residents.filter(r=>!(r.room||'').trim());
+    const total=state.residents.length;
+    if(total===0){alert('등록된 거주인이 없습니다.');return;}
+    const byRoom={};rooms.forEach(rm=>{byRoom[rm]=state.residents.filter(r=>(r.room||'').trim()===rm).map(r=>r.name);});
+    const maxRows=Math.max(1,...rooms.map(rm=>byRoom[rm].length));
+    let html=`<div style="padding:8mm 6mm;color:#000;">`;
+    html+=`<h1 style="text-align:center;font-size:17px;font-weight:800;letter-spacing:2px;margin:0 0 5mm;">거주실별 대상자 명단 (총 ${total}명)</h1>`;
+    html+=`<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:11px;">`;
+    // 헤더: 번호칸 + 생활실들
+    html+=`<colgroup><col style="width:6%">`;
+    rooms.forEach(()=>html+=`<col style="width:${(94/Math.max(1,rooms.length)).toFixed(2)}%">`);
+    html+=`</colgroup>`;
+    html+=`<tr><th style="border:1px solid #000;background:#d9d9d9;padding:6px;"></th>`;
+    rooms.forEach(rm=>html+=`<th style="border:1px solid #000;background:#d9d9d9;padding:6px;font-weight:700;">${escapeHtml(rm)}</th>`);
+    html+=`</tr>`;
+    for(let i=0;i<maxRows;i++){
+      html+=`<tr><td style="border:1px solid #000;padding:6px;text-align:center;font-weight:700;background:#f5f5f5;">${i+1}</td>`;
+      rooms.forEach(rm=>html+=`<td style="border:1px solid #000;padding:6px;text-align:center;">${byRoom[rm][i]?escapeHtml(byRoom[rm][i]):''}</td>`);
+      html+=`</tr>`;
+    }
+    html+=`</table>`;
+    if(noRoom.length){
+      html+=`<p style="margin-top:4mm;font-size:10px;color:#555;">※ 생활실 미지정 ${noRoom.length}명: ${noRoom.map(r=>escapeHtml(r.name)).join(', ')}</p>`;
+    }
+    html+=`</div>`;
+    sheet.innerHTML=html;
+    document.body.classList.add('printing-questions');
+    const cleanup=()=>{document.body.classList.remove('printing-questions');window.removeEventListener('afterprint',cleanup);};
+    window.addEventListener('afterprint',cleanup);
+    setTimeout(()=>window.print(),60);
   }
 
   function exportBackupData(){
@@ -1932,7 +2036,7 @@
   }
 
   // 전역 바인딩
-  Object.assign(window,{switchTab,filterResidents,setFilterStatus,selectResident,toggleAddResidentModal,saveResidentInfo,openEditResidentModal,deleteResident,switchEvalSubtab,selectQuestionOption,switchCategorySubtab,saveCurrentEvaluation,updateOpinionText,updateDescText,resetReportText,switchStatsCategory,switchFacilityReport,updateFacilityNote,resetFacilityNote,switchQuestionsCategory,saveCustomQuestions,resetQuestionsToDefault,exportToExcel,exportBackupData,triggerBackupImport,importBackupData,importResidentRoster,clearAllData,openResidentPanel,closeResidentPanel,updateEtcText,addQuestion,deleteQuestion,addOption,deleteOption,printQuestionSheet,saveCurrentYearReport,toggleYearlyComparison,renderYearlyComparison,deleteYearlyReport});
+  Object.assign(window,{switchTab,filterResidents,setFilterStatus,selectResident,toggleSelectMode,toggleResidentSelect,toggleSelectAll,deleteSelectedResidents,toggleAddResidentModal,saveResidentInfo,openEditResidentModal,deleteResident,switchEvalSubtab,selectQuestionOption,switchCategorySubtab,saveCurrentEvaluation,updateOpinionText,updateDescText,resetReportText,switchStatsCategory,switchFacilityReport,updateFacilityNote,resetFacilityNote,switchQuestionsCategory,saveCustomQuestions,resetQuestionsToDefault,exportToExcel,exportBackupData,triggerBackupImport,importBackupData,printResidentRoster,clearAllData,openResidentPanel,closeResidentPanel,updateEtcText,addQuestion,deleteQuestion,addOption,deleteOption,printQuestionSheet,saveCurrentYearReport,toggleYearlyComparison,renderYearlyComparison,deleteYearlyReport});
   </script>
 </body>
 </html>
