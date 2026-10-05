@@ -380,6 +380,9 @@
           <span class="text-sm">⚙️</span> 데이터 백업 및 관리
         </summary>
         <div class="space-y-2 pt-3">
+          <button onclick="importResidentRoster()" class="w-full py-2.5 bg-indigo-600 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5">
+            <span class="text-xs">📋</span> 거주인 명단 일괄 등록 (53명)
+          </button>
           <button onclick="exportBackupData()" class="w-full py-2.5 bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5">
             <span class="text-xs">⬇️</span> 백업 내보내기 (.json)
           </button>
@@ -1023,7 +1026,7 @@
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2">
             <span class="text-sm font-bold text-slate-900">${escapeHtml(r.name)}</span>
-            <span class="text-[10px] text-slate-400">${escapeHtml(r.gender)}/${calculateAge(r.birthdate)}세</span>
+            <span class="text-[10px] text-slate-400">${r.gender?escapeHtml(r.gender):''}${r.gender&&r.birthdate?'/':''}${r.birthdate?calculateAge(r.birthdate)+'세':''}</span>
           </div>
           <div class="flex items-center gap-1.5 mt-0.5">
             <span class="text-[10px] px-1.5 bg-slate-100 text-slate-600 rounded">${escapeHtml(r.room||'생활실 미지정')}</span>
@@ -1173,7 +1176,7 @@
     if(r){
       document.getElementById("res-avatar").innerText=r.name[0];
       document.getElementById("selected-res-name").innerText=r.name;
-      document.getElementById("selected-res-info").innerText=`${r.gender}/${calculateAge(r.birthdate)}세 · ${r.room||'생활실 미지정'} · ${r.diagnosis||''}`;
+      document.getElementById("selected-res-info").innerText=`${r.gender?r.gender:''}${r.gender&&r.birthdate?'/':''}${r.birthdate?calculateAge(r.birthdate)+'세':''}${(r.gender||r.birthdate)?' · ':''}${r.room||'생활실 미지정'}${r.diagnosis?' · '+r.diagnosis:''}`;
     }
     if(state.evalSubtab==='write')renderEvaluationForm();
     else renderIndividualReportPaper();
@@ -1296,7 +1299,7 @@
     const done=isEvaluationFinished(resId);
     document.getElementById("rep-eval-date").innerText=ev.updatedAt?new Date(ev.updatedAt).toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric'}):new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric'});
     document.getElementById("rep-name").innerText=r.name;
-    document.getElementById("rep-gender").innerHTML=r.gender==='남'?'■ 남  □ 여':'□ 남  ■ 여';
+    document.getElementById("rep-gender").innerHTML=r.gender==='남'?'■ 남  □ 여':r.gender==='여'?'□ 남  ■ 여':'□ 남  □ 여';
     document.getElementById("rep-birthdate").innerText=formatBirthdate(r.birthdate);
     document.getElementById("rep-diagnosis").innerText=r.diagnosis||"-";
     document.getElementById("rep-health").innerHTML=formatHealth(r.health);
@@ -1861,6 +1864,36 @@
     XLSX.writeFile(wb,`ADL_평가결과_${new Date().toISOString().slice(0,10)}.xlsx`);
   }
 
+  // 거주실별 대상자 명단 (총 53명) — 일괄 등록용
+  const RESIDENT_ROSTER={
+    "별관1호":["도민이","이정순","이리라","강순임","김경숙"],
+    "별관2호":["김수경","윤솔희","김유경","이형미","이효선","박근순"],
+    "별관3호":["이매화","최환희","김진옥","신은미","김지은","이신애"],
+    "301호":["김현희","박순희","이난초","이유란","이지란","조미현"],
+    "302호":["김은지","노민혜","성민순","신강자","이선애","정희경"],
+    "303호":["박경혜","신연정","신병희","유해인","이인숙","박명순"],
+    "201호":["박형우","이춘식","이오월","김원중","이동진","김평강"],
+    "202호":["김낙성","주재완","이수영","김복득","강건","이덕노"],
+    "203호":["한성진","이상일","김연준","이민혁","김휘철","문바울"]
+  };
+  // 명단 일괄 등록 — 이미 있는 이름(같은 생활실)은 건너뜀, 세부정보는 추후 각자 수정
+  async function importResidentRoster(){
+    const entries=[];
+    Object.entries(RESIDENT_ROSTER).forEach(([room,names])=>names.forEach(name=>entries.push({room,name})));
+    const existing=new Set(state.residents.map(r=>`${(r.name||'').trim()}|${(r.room||'').trim()}`));
+    if(!confirm(`거주실별 명단 ${entries.length}명을 등록합니다.\n이미 등록된 이름(같은 생활실)은 건너뜁니다.\n성별·생년월일 등 세부정보는 등록 후 각자 수정해 주세요.\n\n계속할까요?`))return;
+    let added=0,skipped=0,t=Date.now();
+    entries.forEach(({room,name})=>{
+      if(existing.has(`${name}|${room}`)){skipped++;return;}
+      state.residents.push({id:"res_"+(t++),name,gender:"",birthdate:"",diagnosis:"",room,health:"",notes:""});
+      added++;
+    });
+    try{setSyncStatus('loading');await saveResidentsState();setSyncStatus('ok');}
+    catch(e){setSyncStatus('error');console.error(e);}
+    loadDatabase();updateGlobalStats();
+    alert(`명단 등록 완료 ✅\n추가: ${added}명 / 건너뜀(중복): ${skipped}명\n\n다른 기기에도 자동 동기화됩니다.`);
+  }
+
   function exportBackupData(){
     const blob=new Blob([JSON.stringify({residents:state.residents,evaluations:state.evaluations,questions:state.questions,facilityNotes:state.facilityNotes},null,2)],{type:"application/json"});
     const url=URL.createObjectURL(blob);
@@ -1899,7 +1932,7 @@
   }
 
   // 전역 바인딩
-  Object.assign(window,{switchTab,filterResidents,setFilterStatus,selectResident,toggleAddResidentModal,saveResidentInfo,openEditResidentModal,deleteResident,switchEvalSubtab,selectQuestionOption,switchCategorySubtab,saveCurrentEvaluation,updateOpinionText,updateDescText,resetReportText,switchStatsCategory,switchFacilityReport,updateFacilityNote,resetFacilityNote,switchQuestionsCategory,saveCustomQuestions,resetQuestionsToDefault,exportToExcel,exportBackupData,triggerBackupImport,importBackupData,clearAllData,openResidentPanel,closeResidentPanel,updateEtcText,addQuestion,deleteQuestion,addOption,deleteOption,printQuestionSheet,saveCurrentYearReport,toggleYearlyComparison,renderYearlyComparison,deleteYearlyReport});
+  Object.assign(window,{switchTab,filterResidents,setFilterStatus,selectResident,toggleAddResidentModal,saveResidentInfo,openEditResidentModal,deleteResident,switchEvalSubtab,selectQuestionOption,switchCategorySubtab,saveCurrentEvaluation,updateOpinionText,updateDescText,resetReportText,switchStatsCategory,switchFacilityReport,updateFacilityNote,resetFacilityNote,switchQuestionsCategory,saveCustomQuestions,resetQuestionsToDefault,exportToExcel,exportBackupData,triggerBackupImport,importBackupData,importResidentRoster,clearAllData,openResidentPanel,closeResidentPanel,updateEtcText,addQuestion,deleteQuestion,addOption,deleteOption,printQuestionSheet,saveCurrentYearReport,toggleYearlyComparison,renderYearlyComparison,deleteYearlyReport});
   </script>
 </body>
 </html>
