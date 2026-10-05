@@ -592,6 +592,8 @@
           </button>
         </div>
       </div>
+      <!-- 지원강도 종합 분포 (시설 전체 상대평가) -->
+      <div id="support-dist-panel" class="glass-panel rounded-2xl p-4 space-y-3"></div>
       <div id="stats-compare-panel" class="glass-panel rounded-2xl p-4 space-y-3 hidden">
         <p class="text-xs font-bold text-slate-800 flex items-center gap-1.5"><span>📈</span> 연도별 비교분석 (영역 평균점수)</p>
         <div id="stats-compare-table"></div>
@@ -1421,9 +1423,12 @@
     if(gradeEl){
       if(done){
         const lv=supportLevel(total,maxTotal);
+        const ri=residentRankInfo(resId);
+        const rankTxt=ri?`시설 내 지원강도 순위 <b>${ri.rank}/${ri.count}위</b> · 상위 ${ri.topPct}%`:'';
         gradeEl.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
           <span><b>종합 지원강도 등급</b> : <b style="color:${lv.color}">${lv.label}</b> <span style="color:#555;">(${lv.desc})</span></span>
-          <span style="font-family:monospace;font-weight:700;">총점 ${total}/${maxTotal}</span></div>`;
+          <span style="font-family:monospace;font-weight:700;">총점 ${total}/${maxTotal}</span></div>
+          ${rankTxt?`<div style="margin-top:3px;color:#334155;">${rankTxt}</div>`:''}`;
       }else{
         gradeEl.innerHTML=`<span class="text-slate-400 text-[10px]">평가 완료 후 종합 지원강도 등급이 표시됩니다.</span>`;
       }
@@ -1507,6 +1512,95 @@
     return{label:'3단계 · 중증(전면) 지원',desc:'전반적으로 전면적인 지원이 필요한 수준',color:'#dc2626'};
   }
 
+  // 평가 완료 거주인들의 총점 순위 목록 (지원강도 높은 순)
+  function getFinishedRanking(){
+    const maxTotal=maxTotalScore();
+    const arr=state.residents.filter(r=>isEvaluationFinished(r.id)).map(r=>{
+      const total=['eating','snacking','mobility','water'].reduce((s,c)=>s+calculateCategoryScore(r.id,c),0);
+      return {id:r.id,name:r.name,room:r.room||'',total};
+    });
+    arr.sort((a,b)=>b.total-a.total);
+    const n=arr.length;
+    arr.forEach((x,i)=>{
+      x.rank=i+1;
+      // 백분위: 상위 몇 %인지 (지원강도 상위)
+      x.percentile=n>1?Math.round((i/(n-1))*100):0; // 0%=최상위
+      x.topPct=n>0?Math.round(((i+1)/n)*100):0; // 상위 topPct% 이내
+      x.grade=supportLevel(x.total,maxTotal);
+    });
+    return {list:arr,count:n,maxTotal};
+  }
+  // 특정 거주인의 시설 내 순위 정보
+  function residentRankInfo(resId){
+    const {list,count,maxTotal}=getFinishedRanking();
+    const me=list.find(x=>x.id===resId);
+    if(!me)return null;
+    return {rank:me.rank,count,topPct:me.topPct,total:me.total,maxTotal};
+  }
+  // 통계 탭: 지원강도 종합 분포 패널
+  function renderSupportDistribution(){
+    const panel=document.getElementById("support-dist-panel");if(!panel)return;
+    const {list,count,maxTotal}=getFinishedRanking();
+    if(count===0){
+      panel.innerHTML=`<p class="text-xs font-bold text-slate-800 flex items-center gap-1.5"><span>🎯</span> 지원강도 종합 분포</p><p class="text-[11px] text-slate-400 mt-1">평가 완료된 거주인이 없습니다. 평가를 완료하면 시설 전체 지원강도 분포가 표시됩니다.</p>`;
+      return;
+    }
+    const totals=list.map(x=>x.total);
+    const avg=(totals.reduce((a,b)=>a+b,0)/count).toFixed(1);
+    const maxV=totals[0],minV=totals[count-1];
+    // 등급별 인원
+    const bandCount={경도:0,중등도:0,중증:0};
+    list.forEach(x=>{if(x.grade.label.includes('경도'))bandCount.경도++;else if(x.grade.label.includes('중등도'))bandCount.중등도++;else bandCount.중증++;});
+    // 상위 25% (지원 우선순위 그룹)
+    const topN=Math.max(1,Math.ceil(count*0.25));
+    const topGroup=list.slice(0,topN);
+    let html=`<div class="flex items-center justify-between"><p class="text-xs font-bold text-slate-800 flex items-center gap-1.5"><span>🎯</span> 지원강도 종합 분포 (완료 ${count}명)</p><button onclick="printSupportRanking()" class="px-2.5 py-1.5 bg-slate-900 text-white text-[10px] font-bold rounded-lg no-print">🖨️ 순위표 인쇄</button></div>`;
+    // 요약 카드
+    html+=`<div class="grid grid-cols-4 gap-2 text-center">
+      <div class="bg-slate-50 rounded-xl p-2"><p class="text-[9px] text-slate-400 font-bold">평균총점</p><p class="text-sm font-bold text-slate-900">${avg}</p></div>
+      <div class="bg-rose-50 rounded-xl p-2"><p class="text-[9px] text-rose-400 font-bold">최고</p><p class="text-sm font-bold text-rose-600">${maxV}</p></div>
+      <div class="bg-emerald-50 rounded-xl p-2"><p class="text-[9px] text-emerald-500 font-bold">최저</p><p class="text-sm font-bold text-emerald-600">${minV}</p></div>
+      <div class="bg-slate-50 rounded-xl p-2"><p class="text-[9px] text-slate-400 font-bold">만점</p><p class="text-sm font-bold text-slate-900">${maxTotal}</p></div>
+    </div>`;
+    // 등급 분포 막대
+    html+=`<div class="space-y-1">`;
+    [['중증','#dc2626',bandCount.중증],['중등도','#d97706',bandCount.중등도],['경도','#059669',bandCount.경도]].forEach(([lab,col,c])=>{
+      const pct=((c/count)*100).toFixed(0);
+      html+=`<div class="flex items-center gap-2 text-[10px]"><span class="w-12 font-bold" style="color:${col}">${lab}</span><div class="flex-1 bg-slate-100 rounded-full h-3 overflow-hidden"><div style="width:${pct}%;background:${col};height:100%"></div></div><span class="w-14 text-right font-mono text-slate-600">${c}명 (${pct}%)</span></div>`;
+    });
+    html+=`</div>`;
+    // 지원 우선순위 상위 그룹
+    html+=`<div class="pt-2 border-t border-slate-100"><p class="text-[11px] font-bold text-rose-600 mb-1">⭐ 지원 우선순위 상위 ${topN}명 (상위 25%)</p><div class="flex flex-wrap gap-1.5">`;
+    topGroup.forEach(x=>{html+=`<span class="text-[10px] bg-rose-50 text-rose-700 border border-rose-200 rounded-lg px-2 py-0.5 font-semibold">${x.rank}위 ${escapeHtml(x.name)} ${x.room?'·'+escapeHtml(x.room):''} (${x.total})</span>`;});
+    html+=`</div></div>`;
+    // 전체 순위 표
+    html+=`<details class="pt-1"><summary class="text-[11px] font-bold text-slate-600 cursor-pointer">📋 전체 순위표 보기 (${count}명)</summary>`;
+    html+=`<div class="overflow-x-auto mt-2"><table class="w-full text-[10px] border-collapse"><thead><tr class="bg-slate-100"><th class="border border-slate-200 p-1">순위</th><th class="border border-slate-200 p-1">성명</th><th class="border border-slate-200 p-1">생활실</th><th class="border border-slate-200 p-1">총점</th><th class="border border-slate-200 p-1">등급</th><th class="border border-slate-200 p-1">상위%</th></tr></thead><tbody>`;
+    list.forEach(x=>{html+=`<tr class="text-center"><td class="border border-slate-200 p-1 font-bold">${x.rank}</td><td class="border border-slate-200 p-1">${escapeHtml(x.name)}</td><td class="border border-slate-200 p-1">${escapeHtml(x.room)}</td><td class="border border-slate-200 p-1 font-mono font-bold">${x.total}/${maxTotal}</td><td class="border border-slate-200 p-1" style="color:${x.grade.color};font-weight:700">${x.grade.label.split(' · ')[1]||x.grade.label}</td><td class="border border-slate-200 p-1">${x.topPct}%</td></tr>`;});
+    html+=`</tbody></table></div></details>`;
+    panel.innerHTML=html;
+  }
+  // 지원강도 순위표 인쇄 (전문 양식)
+  function printSupportRanking(){
+    const sheet=document.getElementById("question-print-sheet");if(!sheet)return;
+    const {list,count,maxTotal}=getFinishedRanking();
+    if(count===0){alert('평가 완료된 거주인이 없습니다.');return;}
+    const today=new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric'});
+    const avg=(list.reduce((a,b)=>a+b.total,0)/count).toFixed(1);
+    const bd='1px solid #334155';
+    let html=`<div style="padding:9mm 8mm;color:#0f172a;-webkit-print-color-adjust:exact;print-color-adjust:exact;">`;
+    html+=`<div style="text-align:center;margin-bottom:3mm;"><div style="font-size:17px;font-weight:800;letter-spacing:2px;">ADL 지원강도 종합 순위표</div><div style="font-size:10px;color:#475569;margin-top:1mm;">중증장애인 거주시설 쉼터　|　완료 ${count}명　|　평균 ${avg}/${maxTotal}　|　작성일 ${today}</div><div style="border-bottom:2px solid #0f172a;margin-top:2mm;"></div></div>`;
+    html+=`<table style="width:100%;border-collapse:collapse;font-size:11px;"><tr>`+
+      ['순위','성명','생활실','총점','지원강도 등급','상위%'].map(h=>`<th style="border:${bd};background:#1e293b;color:#fff;padding:6px;font-weight:700;">${h}</th>`).join('')+`</tr>`;
+    list.forEach((x,i)=>{const zebra=i%2?'background:#f8fafc;':'';html+=`<tr style="${zebra}"><td style="border:${bd};padding:5px;text-align:center;font-weight:700;">${x.rank}</td><td style="border:${bd};padding:5px;text-align:center;">${escapeHtml(x.name)}</td><td style="border:${bd};padding:5px;text-align:center;">${escapeHtml(x.room)}</td><td style="border:${bd};padding:5px;text-align:center;font-weight:700;">${x.total}/${maxTotal}</td><td style="border:${bd};padding:5px;text-align:center;color:${x.grade.color};font-weight:700;">${escapeHtml(x.grade.label)}</td><td style="border:${bd};padding:5px;text-align:center;">${x.topPct}%</td></tr>`;});
+    html+=`</table></div>`;
+    sheet.innerHTML=html;
+    document.body.classList.add('printing-questions');
+    const cleanup=()=>{document.body.classList.remove('printing-questions');window.removeEventListener('afterprint',cleanup);};
+    window.addEventListener('afterprint',cleanup);
+    setTimeout(()=>window.print(),60);
+  }
+
   // 결과지 서술 문장 조합 (기타 선택 시 직접 입력한 내용을 사용)
   function buildCategorySentences(resId,cat){
     const ev=state.evaluations[resId]||{scores:{}};
@@ -1526,6 +1620,7 @@
   }
 
   function renderStatisticsCharts(){
+    renderSupportDistribution();
     const list=state.residents.filter(r=>isEvaluationFinished(r.id));
     const emptyEl=document.getElementById("stats-empty-state");
     const gridEl=document.getElementById("stats-charts-grid");
@@ -2116,7 +2211,7 @@
   }
 
   // 전역 바인딩
-  Object.assign(window,{switchTab,filterResidents,setFilterStatus,selectResident,toggleSelectMode,toggleResidentSelect,toggleSelectAll,deleteSelectedResidents,toggleAddResidentModal,saveResidentInfo,openEditResidentModal,deleteResident,switchEvalSubtab,selectQuestionOption,switchCategorySubtab,saveCurrentEvaluation,updateOpinionText,updateDescText,resetReportText,switchStatsCategory,switchFacilityReport,updateFacilityNote,resetFacilityNote,switchQuestionsCategory,saveCustomQuestions,resetQuestionsToDefault,exportToExcel,exportBackupData,triggerBackupImport,importBackupData,printResidentRoster,clearAllData,openResidentPanel,closeResidentPanel,updateEtcText,addQuestion,deleteQuestion,addOption,deleteOption,printQuestionSheet,saveCurrentYearReport,toggleYearlyComparison,renderYearlyComparison,deleteYearlyReport});
+  Object.assign(window,{switchTab,filterResidents,setFilterStatus,selectResident,toggleSelectMode,toggleResidentSelect,toggleSelectAll,deleteSelectedResidents,toggleAddResidentModal,saveResidentInfo,openEditResidentModal,deleteResident,switchEvalSubtab,selectQuestionOption,switchCategorySubtab,saveCurrentEvaluation,updateOpinionText,updateDescText,resetReportText,switchStatsCategory,switchFacilityReport,updateFacilityNote,resetFacilityNote,switchQuestionsCategory,saveCustomQuestions,resetQuestionsToDefault,exportToExcel,exportBackupData,triggerBackupImport,importBackupData,printResidentRoster,printSupportRanking,clearAllData,openResidentPanel,closeResidentPanel,updateEtcText,addQuestion,deleteQuestion,addOption,deleteOption,printQuestionSheet,saveCurrentYearReport,toggleYearlyComparison,renderYearlyComparison,deleteYearlyReport});
   </script>
 </body>
 </html>
