@@ -124,6 +124,9 @@
       td, th { border: 1px solid #000 !important; padding: 4px !important; }
       .glass-panel { background: #fff !important; box-shadow: none !important; backdrop-filter: none !important; border: 1px solid #ccc !important; }
       .chart-wrapper { page-break-inside: avoid; }
+      /* 문항지 인쇄 모드: 본문 숨기고 문항지만 노출 */
+      body.printing-questions #main-content { display: none !important; }
+      body.printing-questions #question-print-sheet { display: block !important; }
     }
     /* 모달 스크롤 */
     #resident-modal .modal-body { max-height: 70vh; overflow-y: auto; }
@@ -643,6 +646,9 @@
           <span class="text-sm">⚙️</span> 문항 관리
         </h2>
         <div class="flex gap-2">
+          <button onclick="printQuestionSheet()" class="px-3 py-2 bg-slate-900 text-white text-xs font-bold rounded-xl flex items-center gap-1">
+            <span class="text-xs">🖨️</span> 문항지 인쇄
+          </button>
           <button onclick="resetQuestionsToDefault()" class="px-3 py-2 text-xs text-rose-600 border border-rose-200 font-bold rounded-xl">초기화</button>
           <button onclick="saveCustomQuestions()" class="px-3 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl flex items-center gap-1">
             <span class="text-xs">💾</span> 저장
@@ -662,6 +668,9 @@
     </section>
 
   </main>
+
+  <!-- 문항지 인쇄 전용 영역 (평소 숨김, 인쇄 시에만 노출) -->
+  <div id="question-print-sheet" class="hidden"></div>
 
   <!-- 하단 네비게이션 -->
   <nav id="bottom-nav" class="no-print">
@@ -1671,6 +1680,61 @@
     container.appendChild(addBtn);
   }
 
+  // 사진 양식의 문항지(인쇄 전용) 생성 — 번호/질문(선정이유)/보기들/점수
+  function buildQuestionPrintSheet(){
+    const sheet=document.getElementById("question-print-sheet");if(!sheet)return;
+    const catLabels={eating:'식사',snacking:'간식',mobility:'이동',water:'물'};
+    const cats=['eating','snacking','mobility','water'];
+    const today=new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric'});
+    let html=`<div style="padding:8mm 6mm;color:#000;">`;
+    html+=`<h1 style="text-align:center;font-size:17px;font-weight:800;letter-spacing:3px;margin:0 0 2mm;">ADL 지원강도 평가 문항지</h1>`;
+    html+=`<p style="text-align:right;font-size:10px;color:#333;margin:0 0 5mm;">작성일: ${today}　성명: ___________</p>`;
+    cats.forEach(cat=>{
+      const qs=state.questions.filter(q=>q.category===cat).slice().sort((a,b)=>(a.number||0)-(b.number||0));
+      if(!qs.length)return;
+      const maxOpt=Math.max(1,...qs.map(q=>q.options.length));
+      const optW=(60/maxOpt).toFixed(2);
+      html+=`<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:11px;margin:0 0 7mm;page-break-inside:auto;">`;
+      html+=`<colgroup><col style="width:7%"><col style="width:33%">`;
+      for(let i=0;i<maxOpt;i++)html+=`<col style="width:${optW}%">`;
+      html+=`</colgroup>`;
+      html+=`<tr>`+
+        `<th colspan="2" style="border:1px solid #000;background:#d9d9d9;padding:6px;text-align:left;font-weight:700;">${escapeHtml(catLabels[cat])}(선정 이유)</th>`+
+        `<th colspan="${maxOpt}" style="border:1px solid #000;background:#d9d9d9;padding:6px;text-align:left;font-weight:700;">수행에 따라 지원하는 강도가 달라짐.</th>`+
+        `</tr>`;
+      qs.forEach(q=>{
+        html+=`<tr style="page-break-inside:avoid;">`;
+        html+=`<td style="border:1px solid #000;padding:6px;text-align:center;font-weight:700;vertical-align:top;">${q.number||''}</td>`;
+        html+=`<td style="border:1px solid #000;padding:6px;vertical-align:top;">${escapeHtml(q.title)}${q.description?`<br><span style="color:#444;">(${escapeHtml(q.description)})</span>`:''}</td>`;
+        for(let i=0;i<maxOpt;i++){
+          const o=q.options[i];
+          html+=`<td style="border:1px solid #000;padding:6px;vertical-align:top;">${o?`${i+1}. ${escapeHtml(o.label)}`:''}</td>`;
+        }
+        html+=`</tr>`;
+      });
+      html+=`<tr><td colspan="2" style="border:1px solid #000;padding:9px;text-align:center;font-weight:700;background:#f0f0f0;">점수</td><td colspan="${maxOpt}" style="border:1px solid #000;padding:9px;"></td></tr>`;
+      html+=`</table>`;
+    });
+    html+=`</div>`;
+    sheet.innerHTML=html;
+  }
+
+  // 문항지 인쇄 — 현재 편집 중인 내용까지 반영하고 저장/동기화 후 인쇄
+  async function printQuestionSheet(){
+    syncQuestionsFromDOM();
+    // 최신 수정 내용을 저장/동기화하여 인쇄물이 항상 최신본이 되도록
+    window.QuestionsManager.saveQuestions(state.questions);
+    if(window._fb){
+      try{setSyncStatus('loading');await window._fb.saveQuestions(state.questions);setSyncStatus('ok');}
+      catch(e){setSyncStatus('error');console.error(e);}
+    }
+    buildQuestionPrintSheet();
+    document.body.classList.add('printing-questions');
+    const cleanup=()=>{document.body.classList.remove('printing-questions');window.removeEventListener('afterprint',cleanup);};
+    window.addEventListener('afterprint',cleanup);
+    setTimeout(()=>window.print(),60);
+  }
+
   // DOM에 입력된 편집 내용을 저장하지 않고 state.questions에만 반영 (추가/삭제 전 편집 유실 방지)
   function syncQuestionsFromDOM(){
     state.questions.forEach(q=>{
@@ -1687,17 +1751,32 @@
     const cat=state.questionsCategory;
     const labels={eating:'식사',snacking:'간식',mobility:'이동',water:'물'};
     syncQuestionsFromDOM();
-    const inCat=state.questions.filter(q=>q.category===cat);
-    const nextNum=inCat.reduce((m,q)=>Math.max(m,q.number||0),0)+1;
-    state.questions.push({
+    // 현재 카테고리 문항들의 전역 인덱스
+    const catIdx=[];
+    state.questions.forEach((q,i)=>{if(q.category===cat)catIdx.push(i);});
+    const len=catIdx.length;
+    // 원하는 번호 입력받기 (중간 삽입 지원)
+    let pos=parseInt(prompt(`새 문항을 몇 번 위치에 넣을까요?\n1 ~ ${len+1} (비우거나 취소하면 맨 끝에 추가)`,String(len+1)),10);
+    if(isNaN(pos)||pos<1)pos=len+1;
+    if(pos>len+1)pos=len+1;
+    const newQ={
       id:`custom_${Date.now()}`,
-      category:cat,categoryLabel:labels[cat]||cat,number:nextNum,
+      category:cat,categoryLabel:labels[cat]||cat,number:pos,
       title:"새 문항",description:"설명을 입력하세요",
       options:[
         {value:"opt1",label:"보기 1",template:""},
         {value:"opt2",label:"보기 2",template:""}
       ]
-    });
+    };
+    // 삽입 위치 계산
+    let insertAt;
+    if(len===0){insertAt=state.questions.length;}
+    else if(pos>len){insertAt=catIdx[len-1]+1;}
+    else{insertAt=catIdx[pos-1];}
+    state.questions.splice(insertAt,0,newQ);
+    // 카테고리 내 번호 재정렬 (순서대로 1,2,3...)
+    const inCat=state.questions.filter(q=>q.category===cat);
+    inCat.forEach((x,i)=>{x.number=i+1;});
     renderQuestionsConfig();
   }
 
@@ -1820,7 +1899,7 @@
   }
 
   // 전역 바인딩
-  Object.assign(window,{switchTab,filterResidents,setFilterStatus,selectResident,toggleAddResidentModal,saveResidentInfo,openEditResidentModal,deleteResident,switchEvalSubtab,selectQuestionOption,switchCategorySubtab,saveCurrentEvaluation,updateOpinionText,updateDescText,resetReportText,switchStatsCategory,switchFacilityReport,updateFacilityNote,resetFacilityNote,switchQuestionsCategory,saveCustomQuestions,resetQuestionsToDefault,exportToExcel,exportBackupData,triggerBackupImport,importBackupData,clearAllData,openResidentPanel,closeResidentPanel,updateEtcText,addQuestion,deleteQuestion,addOption,deleteOption,saveCurrentYearReport,toggleYearlyComparison,renderYearlyComparison,deleteYearlyReport});
+  Object.assign(window,{switchTab,filterResidents,setFilterStatus,selectResident,toggleAddResidentModal,saveResidentInfo,openEditResidentModal,deleteResident,switchEvalSubtab,selectQuestionOption,switchCategorySubtab,saveCurrentEvaluation,updateOpinionText,updateDescText,resetReportText,switchStatsCategory,switchFacilityReport,updateFacilityNote,resetFacilityNote,switchQuestionsCategory,saveCustomQuestions,resetQuestionsToDefault,exportToExcel,exportBackupData,triggerBackupImport,importBackupData,clearAllData,openResidentPanel,closeResidentPanel,updateEtcText,addQuestion,deleteQuestion,addOption,deleteOption,printQuestionSheet,saveCurrentYearReport,toggleYearlyComparison,renderYearlyComparison,deleteYearlyReport});
   </script>
 </body>
 </html>
