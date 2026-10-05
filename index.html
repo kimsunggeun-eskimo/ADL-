@@ -1435,8 +1435,9 @@
     }
     const opEl=document.getElementById("rep-overall-clinical-opinion");
     if(done){
-      if(!ev.opinion)ev.opinion=generateAutoClinicalOpinion(resId);
-      opEl.innerHTML=`<textarea onblur="updateOpinionText(this.value)" class="w-full bg-transparent border-0 text-[10px] text-slate-800 p-0 focus:outline-none leading-relaxed" rows="5">${escapeHtml(ev.opinion)}</textarea>`;
+      // 직접 수정한 소견이 있으면 그대로, 없으면 항상 최신 자동 소견을 생성(기존 평가자도 새 기준 반영)
+      const opinionText=ev.opinionEdited?(ev.opinion||""):generateAutoClinicalOpinion(resId);
+      opEl.innerHTML=`<textarea onblur="updateOpinionText(this.value)" class="w-full bg-transparent border-0 text-[10px] text-slate-800 p-0 focus:outline-none leading-relaxed" rows="5">${escapeHtml(opinionText)}</textarea>`;
     }else{
       opEl.innerText="평가 대기 중...";
     }
@@ -1445,7 +1446,9 @@
   function updateOpinionText(v){
     const resId=state.currentResidentId;
     if(!resId||!state.evaluations[resId])return;
-    state.evaluations[resId].opinion=v;saveEvaluationsState(resId);
+    state.evaluations[resId].opinion=v;
+    state.evaluations[resId].opinionEdited=true; // 직접 수정 표시 → 이후 자동 덮어쓰기 안 함
+    saveEvaluationsState(resId);
   }
 
   // 결과지의 영역별 평가 내용을 직접 수정한 값 저장 (자동 생성 문장 대신 사용됨)
@@ -1469,7 +1472,8 @@
     if(!confirm("직접 수정한 평가 내용과 종합소견을 모두 자동 생성 문장으로 되돌립니다. 계속할까요?"))return;
     const ev=state.evaluations[resId];
     delete ev.descOverride;
-    ev.opinion=generateAutoClinicalOpinion(resId);
+    delete ev.opinion;
+    ev.opinionEdited=false; // 자동 소견으로 되돌림
     saveEvaluationsState(resId);
     renderIndividualReportPaper();
   }
@@ -2126,7 +2130,8 @@
     list.forEach(r=>{
       const e=calculateCategoryScore(r.id,'eating'),s=calculateCategoryScore(r.id,'snacking'),m=calculateCategoryScore(r.id,'mobility'),w=calculateCategoryScore(r.id,'water');
       const ev=state.evaluations[r.id];
-      rows.push([r.name,r.gender,r.birthdate||"",r.diagnosis||"",r.health||"",r.room||"",r.notes||"",e+s+m+w,e,s,m,w,ev.opinion||""]);
+      const opinion=ev.opinionEdited?(ev.opinion||""):generateAutoClinicalOpinion(r.id);
+      rows.push([r.name,r.gender,r.birthdate||"",r.diagnosis||"",r.health||"",r.room||"",r.notes||"",e+s+m+w,e,s,m,w,opinion]);
     });
     XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(rows),"거주인 점수대장");
     XLSX.writeFile(wb,`ADL_평가결과_${new Date().toISOString().slice(0,10)}.xlsx`);
