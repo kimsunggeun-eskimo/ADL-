@@ -1931,13 +1931,11 @@
       html+=`<div style="font-size:17px;font-weight:800;letter-spacing:2px;">ADL 수행에 따라 지원되는 강도의 연관성에 대한 평가</div>`;
       html+=`<div style="font-size:12px;font-weight:700;color:#1e293b;margin-top:1mm;">[ ${escapeHtml(catLabels[cat])} 영역 ]</div>`;
       html+=`</div>`;
-      // 성명/평가일 정보 바
+      // 성명 정보 바
       html+=`<table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:3mm;">`+
         `<tr>`+
         `<td style="border:${bd};background:#1e293b;color:#fff;padding:5px;width:14%;text-align:center;font-weight:700;">성명</td>`+
-        `<td style="border:${bd};padding:5px;width:36%;"></td>`+
-        `<td style="border:${bd};background:#1e293b;color:#fff;padding:5px;width:16%;text-align:center;font-weight:700;">평가일</td>`+
-        `<td style="border:${bd};padding:5px;">${today}</td>`+
+        `<td style="border:${bd};padding:5px;"></td>`+
         `</tr></table>`;
       // 문항 표
       html+=`<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:11px;page-break-inside:auto;">`;
@@ -2133,33 +2131,35 @@
     const byRoom={};rooms.forEach(rm=>{byRoom[rm]=state.residents.filter(r=>(r.room||'').trim()===rm).map(r=>r.name);});
     const maxRows=Math.max(1,...rooms.map(rm=>byRoom[rm].length));
     const today=new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric'});
-    // 열·행이 많으면 글자 축소하여 한 페이지에 맞춤
-    const fs=rooms.length>8||maxRows>10?10:11;
-    const pad=maxRows>10?'4px':'6px';
     const bd='1px solid #334155';
-    let html=`<div style="page:roster;padding:4mm 2mm;color:#0f172a;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-family:inherit;">`;
+    // 가로 A4 한 페이지(약 170mm)를 꽉 채우도록 행 높이·글자 크기 자동 계산
+    const totalRows=maxRows+2; // 헤더 + 데이터 + 계
+    const rowH=Math.max(9,Math.min(28,Math.round(170/totalRows))); // mm
+    const fs=rowH>=22?18:rowH>=16?16:rowH>=12?14:rooms.length>8?11:12;
+    const cellBase=`border:${bd};height:${rowH}mm;vertical-align:middle;text-align:center;`;
+    let html=`<div style="page:roster;padding:4mm 3mm;color:#0f172a;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-family:inherit;">`;
     // 제목 블록
-    html+=`<div style="text-align:center;margin-bottom:4mm;">`;
-    html+=`<div style="font-size:18px;font-weight:800;letter-spacing:3px;">거주실별 대상자 명단</div>`;
-    html+=`<div style="font-size:10px;color:#475569;margin-top:2px;">중증장애인 거주시설 쉼터　|　총 ${total}명　|　작성일 ${today}</div>`;
-    html+=`<div style="border-bottom:2px solid #0f172a;margin-top:3mm;"></div></div>`;
+    html+=`<div style="text-align:center;margin-bottom:3mm;">`;
+    html+=`<div style="font-size:20px;font-weight:800;letter-spacing:3px;">거주실별 대상자 명단</div>`;
+    html+=`<div style="font-size:11px;color:#475569;margin-top:2px;">중증장애인 거주시설 쉼터　|　총 ${total}명　|　작성일 ${today}</div>`;
+    html+=`<div style="border-bottom:2px solid #0f172a;margin-top:2mm;"></div></div>`;
     html+=`<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:${fs}px;">`;
-    html+=`<colgroup><col style="width:5%">`;
-    rooms.forEach(()=>html+=`<col style="width:${(95/Math.max(1,rooms.length)).toFixed(2)}%">`);
+    html+=`<colgroup><col style="width:6%">`;
+    rooms.forEach(()=>html+=`<col style="width:${(94/Math.max(1,rooms.length)).toFixed(2)}%">`);
     html+=`</colgroup>`;
     // 헤더 (짙은 색)
-    html+=`<tr><th style="border:${bd};background:#1e293b;color:#fff;padding:${pad};font-weight:700;">연번</th>`;
-    rooms.forEach(rm=>html+=`<th style="border:${bd};background:#1e293b;color:#fff;padding:${pad};font-weight:700;">${escapeHtml(rm)}</th>`);
+    html+=`<tr><th style="${cellBase}background:#1e293b;color:#fff;font-weight:700;">연번</th>`;
+    rooms.forEach(rm=>html+=`<th style="${cellBase}background:#1e293b;color:#fff;font-weight:700;">${escapeHtml(rm)}</th>`);
     html+=`</tr>`;
     for(let i=0;i<maxRows;i++){
       const zebra=i%2?'background:#f1f5f9;':'';
-      html+=`<tr><td style="border:${bd};padding:${pad};text-align:center;font-weight:700;background:#e2e8f0;">${i+1}</td>`;
-      rooms.forEach(rm=>html+=`<td style="border:${bd};padding:${pad};text-align:center;${zebra}">${byRoom[rm][i]?escapeHtml(byRoom[rm][i]):''}</td>`);
+      html+=`<tr><td style="${cellBase}font-weight:700;background:#e2e8f0;">${i+1}</td>`;
+      rooms.forEach(rm=>html+=`<td style="${cellBase}${zebra}">${byRoom[rm][i]?escapeHtml(byRoom[rm][i]):''}</td>`);
       html+=`</tr>`;
     }
     // 각 생활실 인원 합계 행
-    html+=`<tr><td style="border:${bd};padding:${pad};text-align:center;font-weight:700;background:#cbd5e1;">계</td>`;
-    rooms.forEach(rm=>html+=`<td style="border:${bd};padding:${pad};text-align:center;font-weight:700;background:#e2e8f0;">${byRoom[rm].length}</td>`);
+    html+=`<tr><td style="${cellBase}font-weight:700;background:#cbd5e1;">계</td>`;
+    rooms.forEach(rm=>html+=`<td style="${cellBase}font-weight:700;background:#e2e8f0;">${byRoom[rm].length}</td>`);
     html+=`</tr>`;
     html+=`</table>`;
     if(noRoom.length){
