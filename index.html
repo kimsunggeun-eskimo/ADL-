@@ -1645,18 +1645,19 @@
     setTimeout(()=>window.print(),60);
   }
 
-  // 결과지 서술 문장 조합: 보기 답변은 템플릿 문장으로, 기타(특이사항) 메모는 점수와 별개로 '※ 기타'로 함께 반영
-  // 경관식(L-tube/G-tube) 대상자는 식사·간식·물 영역 문장을 자동으로 경관식 문구로 대체
+  // 결과지 서술 문장 조합
+  //  - 보기1(첫 번째 보기=가장 낮은 지원)은 결과지에 적지 않고, 보기2 이상만 기재 (지원이 필요한 부분만)
+  //  - 경관식(L-tube/G-tube) 대상자는 식사·간식·물 영역 맨 앞에 경관식 문구를 추가 (다른 체크 항목은 그대로 유지)
+  //  - 기타(특이사항) 메모는 점수와 별개로 '※ 기타'로 함께 반영
   function buildCategorySentences(resId,cat){
     const ev=state.evaluations[resId]||{scores:{}};
     const r=state.residents.find(x=>x.id===resId);
     const feeding=r&&r.feeding;
+    const qs=state.questions.filter(q=>q.category===cat);
     const sentences=[];
     const etcNotes=[];
-    state.questions.filter(q=>q.category===cat).forEach(q=>{
-      const note=(ev.etcText?.[q.id]||"").trim();
-      if(note)etcNotes.push(note);
-    });
+    qs.forEach(q=>{const note=(ev.etcText?.[q.id]||"").trim();if(note)etcNotes.push(note);});
+    // 경관식 문구 (맨 앞)
     if(feeding&&(cat==='eating'||cat==='snacking'||cat==='water')){
       const tube=feeding==='gtube'?'G-tube(위루관)':'L-tube(비위관)';
       const txt={
@@ -1665,11 +1666,15 @@
         water:`수분(물)도 ${tube} 경관으로 공급받고 있음.`
       };
       sentences.push(txt[cat]);
-    }else{
-      state.questions.filter(q=>q.category===cat).forEach(q=>{
-        const opt=q.options.find(o=>o.value===ev.scores[q.id]);
-        if(opt?.template)sentences.push(opt.template);
-      });
+    }
+    // 보기2 이상만 기재 (보기1/미응답은 생략)
+    qs.forEach(q=>{
+      const idx=q.options.findIndex(o=>o.value===ev.scores[q.id]);
+      if(idx>0){const t=q.options[idx].template;if(t)sentences.push(t);}
+    });
+    // 적을 내용이 전혀 없고 기타도 없으면 기본 문구
+    if(sentences.length===0&&etcNotes.length===0){
+      sentences.push('전반적으로 기본(자립) 수준으로, 추가적인 지원이 필요한 특이사항은 없음.');
     }
     if(etcNotes.length)sentences.push(`※ 기타: ${etcNotes.join(' / ')}`);
     return sentences;
