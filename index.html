@@ -382,6 +382,28 @@
         </button>
       </div>
 
+      <!-- 평가 자료 인쇄 (명단·영역 평가지·결과지 한 곳) -->
+      <div class="glass-panel rounded-2xl p-4 space-y-2.5">
+        <h3 class="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+          <span class="text-sm">🖨️</span> 평가 자료 인쇄
+        </h3>
+        <p class="text-[10px] text-slate-400 leading-relaxed">명단 · 영역 평가지(4장) · 평가 결과지를 한 곳에서 인쇄합니다. ‘평가 자료 모두 인쇄’는 영역 평가지 4장과 결과지를 한 번에 출력합니다.</p>
+        <div class="grid grid-cols-2 gap-2">
+          <button onclick="printResidentRoster()" class="py-2.5 bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5">
+            <span class="text-xs">📋</span> 거주실별 명단
+          </button>
+          <button onclick="printQuestionSheetsStandalone()" class="py-2.5 bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5">
+            <span class="text-xs">📝</span> 영역 평가지 (4장)
+          </button>
+          <button onclick="printBlankResultSheet()" class="py-2.5 bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5">
+            <span class="text-xs">📄</span> 평가 결과지 (1장)
+          </button>
+          <button onclick="printAssessmentPacket()" class="py-2.5 bg-slate-900 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5">
+            <span class="text-xs">🖨️</span> 모두 인쇄
+          </button>
+        </div>
+      </div>
+
       <!-- 지원강도 수준 기준표 -->
       <div class="glass-panel rounded-2xl p-4 space-y-2">
         <h3 class="text-xs font-bold text-slate-900 flex items-center gap-1.5">
@@ -397,9 +419,6 @@
           <span class="text-sm">⚙️</span> 데이터 백업 및 관리
         </summary>
         <div class="space-y-2 pt-3">
-          <button onclick="printResidentRoster()" class="w-full py-2.5 bg-slate-900 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5">
-            <span class="text-xs">📋</span> 거주실별 명단 인쇄
-          </button>
           <button onclick="exportBackupData()" class="w-full py-2.5 bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5">
             <span class="text-xs">⬇️</span> 백업 내보내기 (.json)
           </button>
@@ -1988,8 +2007,7 @@
   }
 
   // 전문 양식의 문항지(인쇄 전용) 생성 — 번호/질문(선정이유)/보기들/점수, 영역별 1페이지
-  function buildQuestionPrintSheet(){
-    const sheet=document.getElementById("question-print-sheet");if(!sheet)return;
+  function buildQuestionSheetsHTML(){
     const catLabels={eating:'식사',snacking:'간식',mobility:'이동',water:'물'};
     const cats=['eating','snacking','mobility','water'];
     const today=new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric'});
@@ -2037,7 +2055,11 @@
       html+=`<div style="text-align:right;font-size:9px;color:#64748b;margin-top:3mm;">중증장애인 거주시설 쉼터</div>`;
       html+=`</div>`;
     });
-    sheet.innerHTML=html;
+    return html;
+  }
+  function buildQuestionPrintSheet(){
+    const sheet=document.getElementById("question-print-sheet");if(!sheet)return;
+    sheet.innerHTML=buildQuestionSheetsHTML();
   }
 
   // 문항지 인쇄 — 현재 편집 중인 내용까지 반영하고 저장/동기화 후 인쇄
@@ -2198,10 +2220,10 @@
   }
 
   // 빈 결과지(수기 작성용) 인쇄 — 세로 A4 한 페이지에 꽉 차게
-  function printBlankResultSheet(){
-    const sheet=document.getElementById("question-print-sheet");if(!sheet)return;
+  function buildBlankResultHTML(opts){
+    const pb=(opts&&opts.pageBreakBefore)?'page-break-before:always;':'';
     const bd='1px solid #000';
-    let html=`<div style="padding:7mm;color:#000;">`;
+    let html=`<div style="${pb}padding:7mm;color:#000;">`;
     html+=`<h1 style="text-align:center;font-size:20px;font-weight:800;letter-spacing:6px;margin:0;">평 가 결 과 지</h1>`;
     html+=`<p style="text-align:center;font-size:11px;margin:2mm 0 4mm;">평가일 :　　　　년　　　　월　　　　일</p>`;
     // 인적사항
@@ -2226,7 +2248,31 @@
     html+=`<div style="border:${bd};height:33mm;"></div>`;
     html+=`<div style="border-top:${bd};margin-top:4mm;padding-top:2mm;display:flex;justify-content:space-between;font-size:9px;font-weight:700;"><span>ADL x SIS Ver. 2.0</span><span>중증장애인 거주시설 쉼터 (인)</span></div>`;
     html+=`</div>`;
-    sheet.innerHTML=html;
+    return html;
+  }
+  function printBlankResultSheet(){
+    const sheet=document.getElementById("question-print-sheet");if(!sheet)return;
+    sheet.innerHTML=buildBlankResultHTML();
+    document.body.classList.add('printing-questions');
+    const cleanup=()=>{document.body.classList.remove('printing-questions');window.removeEventListener('afterprint',cleanup);};
+    window.addEventListener('afterprint',cleanup);
+    setTimeout(()=>window.print(),60);
+  }
+  // 영역 평가지(빈 문항지 4장) 단독 인쇄 — 대시보드 자료 인쇄
+  function printQuestionSheetsStandalone(){
+    if(!state.questions||!state.questions.length){alert('등록된 문항이 없습니다.');return;}
+    const sheet=document.getElementById("question-print-sheet");if(!sheet)return;
+    sheet.innerHTML=buildQuestionSheetsHTML();
+    document.body.classList.add('printing-questions');
+    const cleanup=()=>{document.body.classList.remove('printing-questions');window.removeEventListener('afterprint',cleanup);};
+    window.addEventListener('afterprint',cleanup);
+    setTimeout(()=>window.print(),60);
+  }
+  // 평가 자료 묶음 인쇄 — 영역 평가지 4장 + 평가 결과지 1장을 한 번에
+  function printAssessmentPacket(){
+    if(!state.questions||!state.questions.length){alert('등록된 문항이 없습니다.');return;}
+    const sheet=document.getElementById("question-print-sheet");if(!sheet)return;
+    sheet.innerHTML=buildQuestionSheetsHTML()+buildBlankResultHTML({pageBreakBefore:true});
     document.body.classList.add('printing-questions');
     const cleanup=()=>{document.body.classList.remove('printing-questions');window.removeEventListener('afterprint',cleanup);};
     window.addEventListener('afterprint',cleanup);
@@ -2325,7 +2371,7 @@
   }
 
   // 전역 바인딩
-  Object.assign(window,{switchTab,filterResidents,setFilterStatus,selectResident,toggleSelectMode,toggleResidentSelect,toggleSelectAll,deleteSelectedResidents,toggleAddResidentModal,saveResidentInfo,openEditResidentModal,deleteResident,switchEvalSubtab,selectQuestionOption,switchCategorySubtab,saveCurrentEvaluation,updateOpinionText,updateDescText,resetReportText,switchStatsCategory,switchFacilityReport,updateFacilityNote,resetFacilityNote,switchQuestionsCategory,saveCustomQuestions,resetQuestionsToDefault,exportToExcel,exportBackupData,triggerBackupImport,importBackupData,printResidentRoster,printBlankResultSheet,printSupportRanking,clearAllData,openResidentPanel,closeResidentPanel,updateEtcText,addQuestion,deleteQuestion,addOption,deleteOption,printQuestionSheet,saveCurrentYearReport,toggleYearlyComparison,renderYearlyComparison,deleteYearlyReport});
+  Object.assign(window,{switchTab,filterResidents,setFilterStatus,selectResident,toggleSelectMode,toggleResidentSelect,toggleSelectAll,deleteSelectedResidents,toggleAddResidentModal,saveResidentInfo,openEditResidentModal,deleteResident,switchEvalSubtab,selectQuestionOption,switchCategorySubtab,saveCurrentEvaluation,updateOpinionText,updateDescText,resetReportText,switchStatsCategory,switchFacilityReport,updateFacilityNote,resetFacilityNote,switchQuestionsCategory,saveCustomQuestions,resetQuestionsToDefault,exportToExcel,exportBackupData,triggerBackupImport,importBackupData,printResidentRoster,printBlankResultSheet,printQuestionSheetsStandalone,printAssessmentPacket,printSupportRanking,clearAllData,openResidentPanel,closeResidentPanel,updateEtcText,addQuestion,deleteQuestion,addOption,deleteOption,printQuestionSheet,saveCurrentYearReport,toggleYearlyComparison,renderYearlyComparison,deleteYearlyReport});
   </script>
 </body>
 </html>
