@@ -1459,15 +1459,19 @@
 
   function saveCurrentEvaluation(){
     const resId=state.currentResidentId;if(!resId)return;
-    if(!state.evaluations[resId])state.evaluations[resId]={scores:{},opinion:""};
-    state.evaluations[resId].updatedAt=new Date().toISOString();
+    const ev=state.evaluations[resId]||(state.evaluations[resId]={scores:{},opinion:""});
+    ev.updatedAt=new Date().toISOString();
     const done=isEvaluationFinished(resId);
-    if(done&&!state.evaluations[resId].opinion){
-      state.evaluations[resId].opinion=generateAutoClinicalOpinion(resId);
+    if(done){
+      // 저장 완료 시: 방금 '작성한 답변' 기준으로 결과지를 새로 생성.
+      // 이전에 직접 수정하여 저장된 결과지 문구·종합소견은 초기화하여 최신 답변과 항상 일치하도록 함.
+      delete ev.descOverride;
+      ev.opinionEdited=false;
+      ev.opinion=generateAutoClinicalOpinion(resId);
     }
     saveEvaluationsState(resId);
     if(done){
-      alert("평가가 완료되었습니다! 결과지를 확인하세요.");
+      alert("평가가 완료되었습니다! 작성한 답변대로 결과지가 새로 생성되었습니다.");
       switchEvalSubtab('report');
     }else{
       alert("임시 저장되었습니다. 38개 전 문항을 채우면 완료 처리됩니다.");
