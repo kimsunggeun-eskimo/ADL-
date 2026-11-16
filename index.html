@@ -134,7 +134,22 @@
       body.printing-roster #question-print-sheet td,
       body.printing-roster #question-print-sheet th { padding: 0 1px !important; line-height: 1 !important; }
       body.printing-roster { }
+      /* 종합보고서 인쇄: 기타 특이사항 제외, 본문을 깔끔한 문서로 (한 페이지 우선, 길면 자연스럽게 다음 장) */
+      #tab-reports.active { page: report; }
+      #tab-reports .cat-tab-row { display: none !important; }
+      #tab-reports .glass-panel { border: none !important; padding: 0 !important; }
+      #facility-report-document { font-size: 11px !important; }
+      #facility-report-document [contenteditable] {
+        border: none !important;
+        min-height: 0 !important;
+        padding: 0 !important;
+        background: #fff !important;
+        font-size: 11px !important;
+        line-height: 1.55 !important;
+        white-space: pre-wrap !important;
+      }
     }
+    @page report { size: A4 portrait; margin: 14mm; }
     @page roster { size: A4 portrait; margin: 10mm; }
     /* 모달 스크롤 */
     #resident-modal .modal-body { max-height: 70vh; overflow-y: auto; }
@@ -1816,7 +1831,7 @@
       });
     });
     if(!etcItems.length)return"";
-    return `<div class="mt-4 pt-3 border-t border-slate-200"><p class="font-bold text-xs text-slate-800 mb-2">📝 기타 특이사항 (${etcItems.length}건)</p><ul class="text-[11px] text-slate-600 leading-relaxed list-disc pl-4">${etcItems.join('')}</ul></div>`;
+    return `<div class="mt-4 pt-3 border-t border-slate-200 no-print"><p class="font-bold text-xs text-slate-800 mb-2">📝 기타 특이사항 (${etcItems.length}건) <span class="text-[10px] text-slate-400 font-normal">· 화면 참고용(인쇄 제외)</span></p><ul class="text-[11px] text-slate-600 leading-relaxed list-disc pl-4">${etcItems.join('')}</ul></div>`;
   }
 
   function renderFacilityReport(){
