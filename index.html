@@ -436,8 +436,12 @@
           <span class="text-sm">⚙️</span> 데이터 백업 및 관리
         </summary>
         <div class="space-y-2 pt-3">
+          <button onclick="exportDocumentsHTML()" class="w-full py-2.5 bg-slate-900 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5">
+            <span class="text-xs">📑</span> 결과지·보고서·통계 내보내기 (.html)
+          </button>
+          <p class="text-[10px] text-slate-400 leading-relaxed px-1">거주인별 결과지 + 종합보고서 + 통계를 하나의 문서 파일로 저장합니다. 열어서 인쇄하거나 PDF로 저장해 보관·전송할 수 있어요.</p>
           <button onclick="exportBackupData()" class="w-full py-2.5 bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5">
-            <span class="text-xs">⬇️</span> 백업 내보내기 (.json)
+            <span class="text-xs">⬇️</span> 데이터 백업 내보내기 (.json · 복원용)
           </button>
           <button onclick="triggerBackupImport()" class="w-full py-2.5 bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5">
             <span class="text-xs">⬆️</span> 백업 가져오기 / 복원
@@ -2268,6 +2272,146 @@
     XLSX.writeFile(wb,`ADL_평가결과_${new Date().toISOString().slice(0,10)}.xlsx`);
   }
 
+  // 거주인별 결과지 + 종합보고서 + 통계를 한 개의 인쇄 가능한 HTML 파일로 내보내기(백업/전송용)
+  function exportDocumentsHTML(){
+    if(!state.residents||state.residents.length===0){alert("거주인 데이터가 없습니다.");return;}
+    const nlbr=s=>escapeHtml(s||'').replace(/\n/g,'<br>');
+    const today=new Date().toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric'});
+    const finished=state.residents.filter(r=>isEvaluationFinished(r.id)).slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'','ko'));
+    // 거주인 1명 결과지
+    const buildResident=(r)=>{
+      const resId=r.id;
+      const ev=state.evaluations[resId]||{scores:{},opinion:''};
+      const cats=[['eating','식사'],['snacking','간식'],['mobility','이동'],['water','물']];
+      let total=0,rowsHtml='';
+      cats.forEach(([c,label])=>{
+        const sc=calculateCategoryScore(resId,c);total+=sc;
+        const mx=maxCategoryScore(c);
+        const autoText=buildCategorySentences(resId,c).join(' ');
+        const desc=(ev.descOverride&&ev.descOverride[c]!=null)?ev.descOverride[c]:autoText;
+        rowsHtml+='<tr><td class="ct">'+label+'</td><td class="dl">'+nlbr(desc)+'</td><td class="sc">'+sc+'/'+mx+'</td></tr>';
+      });
+      const maxTotal=maxTotalScore();
+      const lv=supportLevel(total,maxTotal);
+      const opinion=ev.opinionEdited?(ev.opinion||''):generateAutoClinicalOpinion(resId);
+      const g=r.gender==='남'?'■ 남　□ 여':r.gender==='여'?'□ 남　■ 여':'□ 남　□ 여';
+      const dateStr=ev.updatedAt?new Date(ev.updatedAt).toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric'}):'-';
+      return ['<div class="sheet">',
+        '<h2 class="rtitle">평 가 결 과 지</h2>',
+        '<p class="rdate">평가일 : '+dateStr+'</p>',
+        '<table class="info"><tbody>',
+        '<tr><td class="hd">성명</td><td class="bold">'+escapeHtml(r.name)+'</td><td class="hd">성별</td><td class="c">'+g+'</td></tr>',
+        '<tr><td class="hd">생년월일</td><td class="c">'+escapeHtml(formatBirthdate(r.birthdate))+'</td><td class="hd">장애유형</td><td class="c bold">'+escapeHtml(r.diagnosis||'-')+'</td></tr>',
+        '<tr><td class="hd">건강상태</td><td colspan="3" class="lft">'+formatHealth(r.health)+'</td></tr>',
+        '</tbody></table>',
+        '<p class="band">■ ADL (식사·간식·이동·물)</p>',
+        '<table class="adl"><colgroup><col style="width:13%"><col><col style="width:14%"></colgroup>',
+        '<tr class="th"><th>영역</th><th>종합의견</th><th>점수</th></tr>',
+        rowsHtml,
+        '<tr class="tot"><td colspan="2">총점</td><td class="sc">'+total+'/'+maxTotal+'</td></tr>',
+        '</table>',
+        '<div class="level"><b>종합 지원강도 수준</b> : <b style="color:'+lv.color+'">'+lv.label+'</b> <span class="muted">('+lv.desc+')</span></div>',
+        '<p class="band">■ 종합 임상 소견</p>',
+        '<div class="opinion">'+nlbr(opinion)+'</div>',
+        '<div class="foot"><span>ADL x SIS Ver. 2.0</span><span>중증장애인 거주시설 쉼터 (인)</span></div>',
+        '</div>'].join('');
+    };
+    // 종합보고서
+    const reportSection=()=>{
+      let html='<div class="sheet"><h2 class="stitle">종합 보고서</h2>';
+      const ov=state.facilityNotes&&state.facilityNotes['overall'];
+      if(ov!=null&&ov!=='')html+='<div class="rep"><p class="rephd">📋 전체 종합보고서</p><div class="repbody">'+nlbr(ov)+'</div></div>';
+      [['eating','🍚 식사'],['snacking','🍪 간식'],['mobility','🦽 이동'],['water','💧 물(수분)']].forEach(([c,label])=>{
+        const o=state.facilityNotes&&state.facilityNotes[c];
+        const txt=(o!=null&&o!=='')?o:buildFacilityDefaultText(c);
+        html+='<div class="rep"><p class="rephd">'+label+' 종합 평가</p><div class="repbody">'+nlbr(txt)+'</div></div>';
+      });
+      return html+'</div>';
+    };
+    // 통계(응답 분포)
+    const statsSection=()=>{
+      const list=state.residents.filter(r=>isEvaluationFinished(r.id));
+      let html='<div class="sheet"><h2 class="stitle">통계 · 응답 분포</h2>';
+      if(!list.length)return html+'<p class="muted">평가 완료 데이터가 없습니다.</p></div>';
+      const {list:rk,count,maxTotal}=getFinishedRanking();
+      const band={경도:0,중등도:0,중증:0};
+      rk.forEach(x=>{if(x.grade.label.includes('경도'))band.경도++;else if(x.grade.label.includes('중등도'))band.중등도++;else band.중증++;});
+      const avg=(rk.reduce((a,b)=>a+b.total,0)/count).toFixed(1);
+      html+='<p class="band">■ 지원강도 종합 분포 (완료 '+count+'명)</p><table class="st"><tr class="th"><th>지원강도 수준</th><th>인원</th><th>비율</th></tr>';
+      [['1단계 · 경도 지원',band.경도],['2단계 · 중등도 지원',band.중등도],['3단계 · 중증(전면) 지원',band.중증]].forEach(([lb,n])=>{
+        html+='<tr><td class="lft">'+lb+'</td><td class="c">'+n+'명</td><td class="c">'+((n/count)*100).toFixed(1)+'%</td></tr>';
+      });
+      html+='</table><p class="note">평균 총점 '+avg+' / '+maxTotal+'점</p>';
+      const map={eating:['eat_01','eat_03','eat_04','eat_06'],snacking:['snack_01','snack_02','snack_03','snack_04'],mobility:['mob_01','mob_02','mob_04','mob_07'],water:['wat_01','wat_02','wat_04','wat_05']};
+      const catLabels={eating:'🍚 식사',snacking:'🍪 간식',mobility:'🦽 이동',water:'💧 물(수분)'};
+      Object.keys(map).forEach(cat=>{
+        html+='<p class="band">■ '+catLabels[cat]+' 영역 주요 문항</p>';
+        map[cat].forEach(qId=>{
+          const q=state.questions.find(x=>x.id===qId);if(!q)return;
+          html+='<table class="st"><tr class="th"><th colspan="3" class="lft">'+escapeHtml(q.title)+'</th></tr>';
+          q.options.forEach(o=>{
+            const n=list.filter(r=>state.evaluations[r.id].scores[qId]===o.value).length;
+            html+='<tr><td class="lft">'+escapeHtml(o.label)+'</td><td class="c">'+n+'명</td><td class="c">'+((n/list.length)*100).toFixed(1)+'%</td></tr>';
+          });
+          html+='</table>';
+        });
+      });
+      return html+'</div>';
+    };
+    // 표지
+    const cover='<div class="sheet cover"><div class="cv-badge">ADL × SIS</div><h1 class="cv-title">ADL 지원강도 평가 자료</h1><p class="cv-sub">중증장애인 거주시설 쉼터</p><table class="cv-meta"><tr><td class="hd">작성일</td><td>'+today+'</td></tr><tr><td class="hd">전체 거주인</td><td>'+state.residents.length+'명</td></tr><tr><td class="hd">평가 완료</td><td>'+finished.length+'명</td></tr><tr><td class="hd">포함 자료</td><td>거주인별 결과지 · 종합보고서 · 통계</td></tr></table><p class="cv-note">※ 이 문서는 앱에서 자동 생성된 백업본입니다. 브라우저에서 열어 인쇄하거나 PDF로 저장해 보관·전송할 수 있습니다.</p></div>';
+    const css=`
+*{box-sizing:border-box;}
+body{font-family:'Malgun Gothic','Apple SD Gothic Neo','Noto Sans KR',sans-serif;color:#0f172a;margin:0;background:#f8fafc;}
+.toolbar{position:sticky;top:0;z-index:10;background:#1e293b;color:#fff;padding:12px 18px;display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:700;}
+.toolbar button{background:#fff;color:#1e293b;border:0;padding:9px 16px;border-radius:9px;font-weight:800;cursor:pointer;font-size:13px;}
+.wrap{max-width:820px;margin:0 auto;padding:18px;}
+.sheet{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:22px 26px;margin-bottom:18px;page-break-after:always;}
+.sheet:last-child{page-break-after:auto;}
+h2.rtitle{text-align:center;font-size:21px;font-weight:800;letter-spacing:8px;margin:0 0 4px;}
+.rdate{text-align:center;font-size:12px;margin:0 0 14px;color:#334155;}
+table{border-collapse:collapse;width:100%;}
+td,th{border:1px solid #0f172a;padding:6px 8px;font-size:12px;}
+.info td.hd,.cv-meta td.hd{background:#f1f5f9;font-weight:700;text-align:center;width:18%;}
+.c{text-align:center;}.lft{text-align:left;}.bold{font-weight:800;}.muted{color:#64748b;}
+.band{font-weight:800;font-size:13px;border-left:4px solid #0f172a;padding-left:7px;margin:16px 0 7px;}
+.adl .th th{background:#f1f5f9;font-weight:800;text-align:center;}
+.adl .ct{text-align:center;font-weight:700;background:#f8fafc;width:13%;}
+.adl .dl{text-align:left;line-height:1.5;}
+.adl .sc{text-align:center;font-weight:800;font-family:monospace;color:#1d4ed8;}
+.adl .tot td{background:#f1f5f9;text-align:center;font-weight:800;}
+.level{border:1px solid #0f172a;background:#f8fafc;padding:8px 10px;margin-top:10px;font-size:12px;}
+.opinion{border:1px solid #0f172a;background:#f8fafc;padding:10px 12px;min-height:70px;font-size:12px;line-height:1.55;white-space:pre-wrap;}
+.foot{display:flex;justify-content:space-between;border-top:1px solid #0f172a;margin-top:16px;padding-top:7px;font-size:10px;font-weight:700;}
+h2.stitle{font-size:18px;font-weight:800;border-left:6px solid #1e293b;padding-left:9px;margin:0 0 14px;}
+.rep{margin-bottom:14px;}
+.rephd{font-weight:800;font-size:13px;margin:0 0 5px;color:#0f172a;}
+.repbody{border:1px solid #cbd5e1;border-radius:6px;padding:10px 12px;font-size:12px;line-height:1.6;white-space:pre-wrap;background:#fff;}
+.st{margin:6px 0 12px;}
+.st .th th{background:#1e293b;color:#fff;font-weight:700;}
+.note{font-size:11px;color:#475569;margin:0 0 10px;}
+.cover{text-align:center;padding:48px 26px;}
+.cv-badge{display:inline-block;background:#1e293b;color:#fff;font-weight:800;letter-spacing:2px;padding:6px 14px;border-radius:999px;font-size:12px;margin-bottom:16px;}
+.cv-title{font-size:26px;font-weight:800;margin:0 0 4px;letter-spacing:2px;}
+.cv-sub{color:#475569;font-size:13px;margin:0 0 20px;}
+.cv-meta{max-width:420px;margin:0 auto 18px;}
+.cv-meta td{text-align:left;}
+.cv-note{font-size:11px;color:#64748b;max-width:460px;margin:0 auto;line-height:1.6;}
+@media print{body{background:#fff;}.no-print{display:none!important;}.wrap{max-width:none;padding:0;}.sheet{border:0;border-radius:0;padding:0;margin:0;}@page{size:A4;margin:12mm;}}
+`;
+    let body='<div class="toolbar no-print"><span>ADL 평가 자료 백업 · '+today+'</span><button onclick="window.print()">🖨️ 인쇄 / PDF로 저장</button></div><div class="wrap">';
+    body+=cover;
+    finished.forEach(r=>{body+=buildResident(r);});
+    body+=reportSection();
+    body+=statsSection();
+    body+='</div>';
+    const docHtml='<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ADL 평가 자료 백업 '+today+'</title><style>'+css+'</style></head><body>'+body+'</body></html>';
+    const blob=new Blob([docHtml],{type:"text/html;charset=utf-8"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");a.href=url;a.download=`ADL_평가자료_${new Date().toISOString().slice(0,10)}.html`;a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+
   // 거주실(생활실)을 보기 좋은 순서로 정렬: 별관 → 숫자 호실 오름차순 → 기타
   function sortedRoomList(){
     const rooms=[...new Set(state.residents.map(r=>(r.room||'').trim()).filter(Boolean))];
@@ -2433,7 +2577,7 @@
   }
 
   // 전역 바인딩
-  Object.assign(window,{switchTab,filterResidents,setFilterStatus,selectResident,toggleSelectMode,toggleResidentSelect,toggleSelectAll,deleteSelectedResidents,toggleAddResidentModal,saveResidentInfo,openEditResidentModal,deleteResident,switchEvalSubtab,selectQuestionOption,switchCategorySubtab,saveCurrentEvaluation,updateOpinionText,updateDescText,resetReportText,switchStatsCategory,switchFacilityReport,updateFacilityNote,resetFacilityNote,switchQuestionsCategory,saveCustomQuestions,resetQuestionsToDefault,exportToExcel,exportBackupData,triggerBackupImport,importBackupData,printResidentRoster,printBlankResultSheet,printQuestionSheetsStandalone,printAssessmentPacket,printSupportRanking,clearAllData,openResidentPanel,closeResidentPanel,updateEtcText,addQuestion,deleteQuestion,addOption,deleteOption,printQuestionSheet,saveCurrentYearReport,toggleYearlyComparison,renderYearlyComparison,deleteYearlyReport});
+  Object.assign(window,{switchTab,filterResidents,setFilterStatus,selectResident,toggleSelectMode,toggleResidentSelect,toggleSelectAll,deleteSelectedResidents,toggleAddResidentModal,saveResidentInfo,openEditResidentModal,deleteResident,switchEvalSubtab,selectQuestionOption,switchCategorySubtab,saveCurrentEvaluation,updateOpinionText,updateDescText,resetReportText,switchStatsCategory,switchFacilityReport,updateFacilityNote,resetFacilityNote,switchQuestionsCategory,saveCustomQuestions,resetQuestionsToDefault,exportToExcel,exportBackupData,triggerBackupImport,importBackupData,printResidentRoster,printBlankResultSheet,printQuestionSheetsStandalone,printAssessmentPacket,printSupportRanking,exportDocumentsHTML,clearAllData,openResidentPanel,closeResidentPanel,updateEtcText,addQuestion,deleteQuestion,addOption,deleteOption,printQuestionSheet,saveCurrentYearReport,toggleYearlyComparison,renderYearlyComparison,deleteYearlyReport});
   </script>
 </body>
 </html>
