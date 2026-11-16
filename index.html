@@ -994,10 +994,20 @@
             setSyncStatus('ok');
           },
           (evaluations) => {
+            // 작성 중(로컬이 더 최신·저장 대기)인 거주인은 서버 에코가 덮어쓰지 않도록 보존
+            if(_evalDirtyId && state.evaluations[_evalDirtyId]){
+              evaluations[_evalDirtyId]=state.evaluations[_evalDirtyId];
+            }
             state.evaluations = evaluations;
             localStorage.setItem("adl_v2_evaluations", JSON.stringify(evaluations));
             updateGlobalStats();
-            if(state.currentTab==='evaluation'){renderResidentSidebar();renderEvaluationView();}
+            if(state.currentTab==='evaluation'){
+              renderResidentSidebar();
+              // 사용자가 작성 폼을 편집 중이면 다시 그리지 않음(선택·입력·스크롤 유실 방지)
+              if(!(state.evalSubtab==='write' && state.currentResidentId && state.currentResidentId===_evalDirtyId)){
+                renderEvaluationView();
+              }
+            }
             setSyncStatus('ok');
           },
           (questions) => {
@@ -1056,6 +1066,21 @@
         setSyncStatus('ok');
       }catch(e){setSyncStatus('error');console.error(e);}
     }
+  }
+
+  // ── 평가 작성 중 데이터 보존 ──────────────────────────────────────────
+  // 보기 선택/기타 입력을 즉시(디바운스) 저장하여 '평가작성지'와 '결과지'가 항상
+  // 동일한 데이터를 보도록 함. 저장 전 실시간 동기화 에코가 선택을 되돌리는 문제 방지.
+  let _evalSaveTimer=null;   // 디바운스 타이머
+  let _evalDirtyId=null;     // 로컬이 더 최신(저장 대기)인 거주인 id
+  function scheduleEvalSave(resId){
+    _evalDirtyId=resId;
+    if(_evalSaveTimer)clearTimeout(_evalSaveTimer);
+    _evalSaveTimer=setTimeout(async()=>{
+      _evalSaveTimer=null;
+      try{ await saveEvaluationsState(resId); }
+      finally{ if(_evalDirtyId===resId && !_evalSaveTimer)_evalDirtyId=null; }
+    },500);
   }
 
   function switchTab(tabId){
@@ -1400,6 +1425,7 @@
     element.classList.add("active-option");
     const radio=element.querySelector("input[type='radio']");if(radio)radio.checked=true;
     updateSubtabsProgress(resId);
+    scheduleEvalSave(resId); // 선택 즉시 저장(디바운스) → 작성지/결과지 불일치 방지
   }
 
   function updateEtcText(qId,val){
@@ -1407,6 +1433,7 @@
     if(!state.evaluations[resId])state.evaluations[resId]={scores:{},opinion:""};
     if(!state.evaluations[resId].etcText)state.evaluations[resId].etcText={};
     state.evaluations[resId].etcText[qId]=val;
+    scheduleEvalSave(resId); // 기타 입력도 즉시 저장(디바운스)
   }
 
   function updateSubtabsProgress(resId){
