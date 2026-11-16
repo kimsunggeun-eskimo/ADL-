@@ -124,6 +124,8 @@
       td, th { border: 1px solid #000 !important; padding: 4px !important; }
       .glass-panel { background: #fff !important; box-shadow: none !important; backdrop-filter: none !important; border: 1px solid #ccc !important; }
       .chart-wrapper { page-break-inside: avoid; }
+      /* 종합 통계: 영역 제목이 차트와 떨어지지 않도록 */
+      #stats-charts-grid .stats-cat-heading { break-after: avoid; page-break-after: avoid; margin-top: 4mm; }
       /* 문항지 인쇄 모드: 본문 숨기고 문항지만 노출 */
       body.printing-questions #main-content { display: none !important; }
       body.printing-questions #question-print-sheet { display: block !important; }
@@ -646,12 +648,13 @@
         <div id="stats-compare-chart-wrap"></div>
       </div>
       <!-- 통계 카테고리 탭 -->
-      <div class="cat-tab-row">
+      <div class="cat-tab-row no-print">
         <div class="flex bg-slate-100 p-0.5 rounded-xl gap-0.5 min-w-max">
           <button id="stats-nav-eating" onclick="switchStatsCategory('eating')" class="stats-tab-btn px-4 py-2 text-xs font-bold rounded-xl text-indigo-600 bg-white shadow-sm">🍚 식사</button>
           <button id="stats-nav-snacking" onclick="switchStatsCategory('snacking')" class="stats-tab-btn px-4 py-2 text-xs font-bold rounded-xl text-slate-600">🍪 간식</button>
           <button id="stats-nav-mobility" onclick="switchStatsCategory('mobility')" class="stats-tab-btn px-4 py-2 text-xs font-bold rounded-xl text-slate-600">🦽 이동</button>
           <button id="stats-nav-water" onclick="switchStatsCategory('water')" class="stats-tab-btn px-4 py-2 text-xs font-bold rounded-xl text-slate-600">💧 물</button>
+          <button id="stats-nav-overall" onclick="switchStatsCategory('overall')" class="stats-tab-btn px-4 py-2 text-xs font-bold rounded-xl text-slate-600">📊 종합</button>
         </div>
       </div>
       <div id="stats-empty-state" class="glass-panel rounded-2xl p-8 text-center hidden">
@@ -1740,7 +1743,8 @@
     emptyEl.classList.add("hidden");gridEl.classList.remove("hidden");
     state.charts.forEach(c=>c.destroy());state.charts=[];gridEl.innerHTML="";
     const map={eating:['eat_01','eat_03','eat_04','eat_06'],snacking:['snack_01','snack_02','snack_03','snack_04'],mobility:['mob_01','mob_02','mob_04','mob_07'],water:['wat_01','wat_02','wat_04','wat_05']};
-    (map[state.statsCategory]||[]).forEach(qId=>{
+    const catLabels={eating:'🍚 식사',snacking:'🍪 간식',mobility:'🦽 이동',water:'💧 물(수분)'};
+    const renderOne=(qId)=>{
       const q=state.questions.find(x=>x.id===qId);if(!q)return;
       const counts={};q.options.forEach(o=>{counts[o.label]=0;});
       list.forEach(r=>{const v=state.evaluations[r.id].scores[q.id];const o=q.options.find(x=>x.value===v);if(o)counts[o.label]=(counts[o.label]||0)+1;});
@@ -1752,8 +1756,20 @@
       gridEl.appendChild(card);
       const ctx=document.getElementById(`canvas_${q.id}`).getContext("2d");
       const isPie=q.options.length<=3;
-      state.charts.push(new Chart(ctx,{type:isPie?'doughnut':'bar',data:{labels:labels.map(l=>l.split(" (")[0]),datasets:[{data:vals,backgroundColor:isPie?['rgba(99,102,241,0.85)','rgba(59,130,246,0.85)','rgba(239,68,68,0.85)','rgba(16,185,129,0.85)']:'rgba(99,102,241,0.85)',borderWidth:1,borderRadius:isPie?0:6}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:isPie,position:'bottom',labels:{font:{size:9},boxWidth:10}},tooltip:{callbacks:{label:c=>`비율: ${c.formattedValue}%`}}},scales:isPie?{}:{y:{min:0,max:100,ticks:{callback:v=>v+"%",font:{size:8}}},x:{ticks:{font:{size:8}}}}}}));
-    });
+      state.charts.push(new Chart(ctx,{type:isPie?'doughnut':'bar',data:{labels:labels.map(l=>l.split(" (")[0]),datasets:[{data:vals,backgroundColor:isPie?['rgba(99,102,241,0.85)','rgba(59,130,246,0.85)','rgba(239,68,68,0.85)','rgba(16,185,129,0.85)']:'rgba(99,102,241,0.85)',borderWidth:1,borderRadius:isPie?0:6}]},options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:isPie,position:'bottom',labels:{font:{size:9},boxWidth:10}},tooltip:{callbacks:{label:c=>`비율: ${c.formattedValue}%`}}},scales:isPie?{}:{y:{min:0,max:100,ticks:{callback:v=>v+"%",font:{size:8}}},x:{ticks:{font:{size:8}}}}}}));
+    };
+    if(state.statsCategory==='overall'){
+      // 종합 통계: 4개 영역을 영역별 제목과 함께 모두 렌더 (지원강도 종합 분포와 함께 인쇄)
+      ['eating','snacking','mobility','water'].forEach((cat,ci)=>{
+        const head=document.createElement("div");
+        head.className="stats-cat-heading"+(ci>0?" pt-2":"");
+        head.innerHTML=`<h3 class="text-sm font-bold text-slate-900 border-l-4 border-indigo-500 pl-2">${catLabels[cat]} 영역 통계</h3>`;
+        gridEl.appendChild(head);
+        (map[cat]||[]).forEach(renderOne);
+      });
+    }else{
+      (map[state.statsCategory]||[]).forEach(renderOne);
+    }
   }
 
   function switchFacilityReport(catId){
