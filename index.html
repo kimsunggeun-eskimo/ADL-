@@ -1855,29 +1855,57 @@
     const m=l.filter(r=>state.evaluations[r.id].scores[qId]===val);
     return((m.length/l.length)*100).toFixed(1);
   }
-  // 영역별/전체 자동 생성 기본 문장 (수정 전 초기값 & 복원용)
+  // 완료 평가 기준, 특정 문항의 최빈(가장 많이 선택된) 보기 정보 — 실제 응답 분포로 동적 계산
+  function facilityTopOption(qId){
+    const q=state.questions.find(x=>x.id===qId);if(!q)return null;
+    const list=state.residents.filter(r=>isEvaluationFinished(r.id));
+    if(!list.length)return null;
+    const tally=q.options.map((o,idx)=>({label:o.label,idx,value:o.value,n:0}));
+    list.forEach(r=>{const v=state.evaluations[r.id].scores[qId];const t=tally.find(x=>x.value===v);if(t)t.n++;});
+    const sorted=tally.slice().sort((a,b)=>b.n-a.n);
+    const top=sorted[0];
+    if(!top||top.n===0)return null;
+    return {label:top.label,idx:top.idx,n:top.n,pct:Math.round((top.n/list.length)*100),total:list.length,optCount:q.options.length};
+  }
+  // 영역별 서술형 종합: 현재 지원 방법·양상 + 향후 지원 방향 (실제 응답 분포로 자동 생성)
+  function categoryFacilityNarrative(cat){
+    const labels={eating:'식사',snacking:'간식',mobility:'이동',water:'물(수분)'};
+    const list=state.residents.filter(r=>isEvaluationFinished(r.id));
+    if(!list.length)return `[${labels[cat]} 영역]\n평가 완료된 거주인이 없어 분석할 데이터가 없습니다.`;
+    const qs=state.questions.filter(q=>q.category===cat).slice().sort((a,b)=>(a.number||0)-(b.number||0));
+    const current=[];const highNeed=[];
+    qs.forEach(q=>{
+      const t=facilityTopOption(q.id);if(!t)return;
+      current.push(`· ${q.title} — 대부분 '${t.label}' (${t.pct}%, ${t.n}/${t.total}명)`);
+      // 상위 보기(지원강도가 높은 쪽)가 최빈이면 '높은 지원 필요' 항목으로 분류
+      if(t.optCount>1&&t.idx>0&&t.idx>=Math.ceil((t.optCount-1)/2))highNeed.push(q.title);
+    });
+    let future;
+    if(highNeed.length){
+      future=`${highNeed.slice(0,5).join(', ')} 항목에서 상당수가 높은 수준의 지원을 필요로 합니다. 해당 부분은 직원의 전담·밀착 보조와 안전관리(흡인·사레·낙상 예방 등)를 강화하고, 거주인별 맞춤 보조 계획을 수립·점검할 필요가 있습니다. 자립이 가능한 항목은 과도한 개입을 줄이고 능동적 참여를 격려하여 잔존 기능을 유지하도록 지원합니다.`;
+    }else{
+      future=`전반적으로 경도 수준의 지원으로 일상이 유지되고 있습니다. 현재의 지원 방식을 유지하면서 자립 동작을 지속적으로 격려하고, 기능 저하나 안전 위험 징후를 정기적으로 모니터링하는 것이 권장됩니다.`;
+    }
+    return `[${labels[cat]} 영역]\n■ 현재 지원 방법과 양상\n${current.join('\n')}\n■ 향후 지원 방향\n${future}`;
+  }
+  // 영역별/전체 자동 생성 서술 (수정 전 초기값 & 복원용)
   function buildFacilityDefaultText(cat){
-    const p=facilityStatP;
-    const evCount=state.residents.filter(r=>isEvaluationFinished(r.id)).length;
-    if(cat==='eating'){
-      return `[식사 영역 종합]\n연하 보조식(다진식·갈아서)이 주를 이루며, 직원의 1:1 보조 하 식사 지원이 많습니다.\n· 식사 자립도: 스스로 먹는 비율 ${p('eat_01','opt1')}%, 가벼운 보조 필요 ${p('eat_01','opt2')}%\n· 반찬 형태: 다진 반찬(가위질) 제공 ${p('eat_06','opt2')}%\n· 식사 장소: 정형의자·휠체어 착석 ${p('eat_04','opt3')}%`;
-    }
-    if(cat==='snacking'){
-      return `[간식 영역 종합]\n고체 간식보다 액체 간식 섭취 시 높은 수준의 지원이 필요합니다.\n· 고체 간식 자립: 잘 먹음 ${p('snack_01','opt1')}%, 도움 필요 ${p('snack_01','opt2')}%\n· 과일 간식: 믹서에 갈아서 제공 ${p('snack_03','opt2')}%\n· 간식 자율선택: 선택 불가 ${p('snack_08','opt2')}%`;
-    }
-    if(cat==='mobility'){
-      return `[이동 영역 종합]\n네발 기기 및 휠체어 이동이 주를 이루며, 이승 시 낙상 예방 주의가 요망됩니다.\n· 이동 자립: 자력 이동 가능 ${p('mob_01','opt1')}%\n· 이동 수단: 네발기기+휠체어 ${p('mob_02','opt1')}%\n· 휠체어 발판: 타인이 제거해줘야 함 ${p('mob_07','opt2')}%`;
-    }
-    if(cat==='water'){
-      return `[물(수분) 영역 종합]\n탈수 방지를 위해 1,000ml 이상 수분 공급이 격려되고 있습니다.\n· 자립 음용: 스스로 잘 마심 ${p('wat_02','opt1')}%\n· 점증제 사용: 토로미 혼합 ${p('wat_05','opt2')}%\n· 하루 목표량: 1000~1500ml 범위 ${p('wat_06','opt3')}%`;
+    if(cat==='eating'||cat==='snacking'||cat==='mobility'||cat==='water'){
+      return categoryFacilityNarrative(cat);
     }
     // 전체(overall)
     const list=state.residents.filter(r=>isEvaluationFinished(r.id));
-    const avg=c=>list.length?(list.reduce((s,r)=>s+calculateCategoryScore(r.id,c),0)/list.length).toFixed(1):"0.0";
+    const evCount=list.length;
+    if(!evCount)return `[전체 종합보고서]\n평가 완료된 거주인이 없습니다. 평가를 완료하면 시설 전체의 지원 양상과 향후 지원 방향이 서술형으로 자동 작성됩니다.`;
+    const avg=c=>(list.reduce((s,r)=>s+calculateCategoryScore(r.id,c),0)/evCount).toFixed(1);
     const ae=avg('eating'),as=avg('snacking'),am=avg('mobility'),aw=avg('water');
     const total=(parseFloat(ae)+parseFloat(as)+parseFloat(am)+parseFloat(aw)).toFixed(1);
-    return `[전체 종합보고서]\n평가 완료 ${evCount}명을 대상으로 한 ADL 종합 결과입니다.\n영역별 평균점수 — 식사 ${ae}/30, 간식 ${as}/30, 이동 ${am}/30, 물 ${aw}/24 (총점 평균 ${total}/114점).\n\n`+
-      buildFacilityDefaultText('eating')+`\n\n`+buildFacilityDefaultText('snacking')+`\n\n`+buildFacilityDefaultText('mobility')+`\n\n`+buildFacilityDefaultText('water');
+    const {count,maxTotal}=getFinishedRanking();
+    const rk=getFinishedRanking().list;
+    const band={경도:0,중등도:0,중증:0};
+    rk.forEach(x=>{if(x.grade.label.includes('경도'))band.경도++;else if(x.grade.label.includes('중등도'))band.중등도++;else band.중증++;});
+    const intro=`[전체 종합보고서]\n평가 완료 ${evCount}명을 대상으로 한 ADL 지원강도 종합 분석입니다.\n· 지원강도 수준 분포: 경도 ${band.경도}명 · 중등도 ${band.중등도}명 · 중증(전면) ${band.중증}명\n· 영역 평균점수: 식사 ${ae}/${maxCategoryScore('eating')} · 간식 ${as}/${maxCategoryScore('snacking')} · 이동 ${am}/${maxCategoryScore('mobility')} · 물 ${aw}/${maxCategoryScore('water')} (총점 평균 ${total}/${maxTotal}점)`;
+    return intro+`\n\n`+categoryFacilityNarrative('eating')+`\n\n`+categoryFacilityNarrative('snacking')+`\n\n`+categoryFacilityNarrative('mobility')+`\n\n`+categoryFacilityNarrative('water');
   }
   // 기타(직접 입력) 특이사항 모음 HTML (overall이면 전 영역)
   function buildFacilityEtcHtml(cat){
