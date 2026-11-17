@@ -1748,13 +1748,16 @@
       };
       sentences.push(txt[cat]);
     }
-    // 보기2 이상만 기재 (보기1/미응답은 생략)
+    // 평가지에 체크한 모든 항목을 결과지에 반영(누락 없이 최대한 반영).
+    // 단, 경관식(L/G-tube) 영역은 위 경관식 문구와 모순되지 않도록 보기1(자립)은 생략.
+    const tubeCat=feeding&&(cat==='eating'||cat==='snacking'||cat==='water');
+    const minIdx=tubeCat?1:0;
     qs.forEach(q=>{
       const idx=q.options.findIndex(o=>o.value===ev.scores[q.id]);
-      if(idx>0){
+      if(idx>=0&&idx>=minIdx){
         const o=q.options[idx];
         const t=(o.template||'').trim();
-        // 템플릿 문장이 비어 있어도(문항·보기를 추가/수정한 경우) 체크한 항목이 누락되지 않도록
+        // 템플릿이 비어 있어도(문항·보기를 추가/수정한 경우) 체크한 항목이 누락되지 않도록
         // '문항명 — 보기' 형태의 문장으로 대체하여 항상 결과지에 반영함
         sentences.push(t?t:`${q.title} — ${o.label}.`);
       }
