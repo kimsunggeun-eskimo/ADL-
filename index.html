@@ -2337,7 +2337,7 @@
         '<h2 class="rtitle">평 가 결 과 지</h2>',
         '<p class="rdate">평가일 : '+dateStr+'</p>',
         '<table class="info"><tbody>',
-        '<tr><td class="hd">성명</td><td class="bold">'+escapeHtml(r.name)+'</td><td class="hd">성별</td><td class="c">'+g+'</td></tr>',
+        '<tr><td class="hd">성명</td><td class="c bold">'+escapeHtml(r.name)+'</td><td class="hd">성별</td><td class="c">'+g+'</td></tr>',
         '<tr><td class="hd">생년월일</td><td class="c">'+escapeHtml(formatBirthdate(r.birthdate))+'</td><td class="hd">장애유형</td><td class="c bold">'+escapeHtml(r.diagnosis||'-')+'</td></tr>',
         '<tr><td class="hd">건강상태</td><td colspan="3" class="lft">'+formatHealth(r.health)+'</td></tr>',
         '</tbody></table>',
@@ -2384,16 +2384,20 @@
       html+='</table><p class="note">평균 총점 '+avg+' / '+maxTotal+'점</p>';
       const map={eating:['eat_01','eat_03','eat_04','eat_06'],snacking:['snack_01','snack_02','snack_03','snack_04'],mobility:['mob_01','mob_02','mob_04','mob_07'],water:['wat_01','wat_02','wat_04','wat_05']};
       const catLabels={eating:'🍚 식사',snacking:'🍪 간식',mobility:'🦽 이동',water:'💧 물(수분)'};
+      const barColor=(idx,cnt)=>{if(cnt<=1)return '#4f46e5';const r=idx/(cnt-1);return r<0.34?'#10b981':r<0.67?'#f59e0b':'#ef4444';};
       Object.keys(map).forEach(cat=>{
         html+='<p class="band">■ '+catLabels[cat]+' 영역 주요 문항</p>';
         map[cat].forEach(qId=>{
           const q=state.questions.find(x=>x.id===qId);if(!q)return;
-          html+='<table class="st"><tr class="th"><th colspan="3" class="lft">'+escapeHtml(q.title)+'</th></tr>';
-          q.options.forEach(o=>{
+          html+='<div class="qchart"><div class="qtitle">'+escapeHtml(q.title)+'</div>';
+          q.options.forEach((o,oi)=>{
             const n=list.filter(r=>state.evaluations[r.id].scores[qId]===o.value).length;
-            html+='<tr><td class="lft">'+escapeHtml(o.label)+'</td><td class="c">'+n+'명</td><td class="c">'+((n/list.length)*100).toFixed(1)+'%</td></tr>';
+            const pct=list.length?Math.round(n/list.length*100):0;
+            html+='<div class="barrow"><div class="barlabel">'+escapeHtml(o.label)+'</div>'+
+                  '<div class="bartrack"><div class="barfill" style="width:'+pct+'%;background:'+barColor(oi,q.options.length)+';"></div></div>'+
+                  '<div class="barval">'+pct+'% ('+n+'명)</div></div>';
           });
-          html+='</table>';
+          html+='</div>';
         });
       });
       return html+'</div>';
@@ -2429,6 +2433,13 @@ h2.stitle{font-size:18px;font-weight:800;border-left:6px solid #1e293b;padding-l
 .repbody{border:1px solid #cbd5e1;border-radius:6px;padding:10px 12px;font-size:12px;line-height:1.6;white-space:pre-wrap;background:#fff;}
 .st{margin:6px 0 12px;}
 .st .th th{background:#1e293b;color:#fff;font-weight:700;}
+.qchart{margin:7px 0 12px;border:1px solid #e2e8f0;border-radius:8px;padding:9px 12px;page-break-inside:avoid;}
+.qtitle{font-weight:800;font-size:12px;margin-bottom:7px;color:#0f172a;}
+.barrow{display:flex;align-items:center;gap:8px;margin:4px 0;font-size:11px;}
+.barlabel{width:33%;text-align:right;color:#334155;word-break:keep-all;}
+.bartrack{flex:1;height:14px;background:#f1f5f9;border-radius:4px;overflow:hidden;}
+.barfill{height:100%;border-radius:4px;min-width:1px;}
+.barval{width:78px;text-align:left;color:#475569;font-variant-numeric:tabular-nums;}
 .note{font-size:11px;color:#475569;margin:0 0 10px;}
 .cover{text-align:center;padding:48px 26px;}
 .cv-badge{display:inline-block;background:#1e293b;color:#fff;font-weight:800;letter-spacing:2px;padding:6px 14px;border-radius:999px;font-size:12px;margin-bottom:16px;}
