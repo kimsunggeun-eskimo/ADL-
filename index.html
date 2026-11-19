@@ -2374,9 +2374,12 @@
       const band={경도:0,중등도:0,중증:0};
       rk.forEach(x=>{if(x.grade.label.includes('경도'))band.경도++;else if(x.grade.label.includes('중등도'))band.중등도++;else band.중증++;});
       const avg=(rk.reduce((a,b)=>a+b.total,0)/count).toFixed(1);
-      html+='<p class="band">■ 지원강도 종합 분포 (완료 '+count+'명)</p><table class="st"><tr class="th"><th>지원강도 수준</th><th>인원</th><th>비율</th></tr>';
-      [['1단계 · 경도 지원',band.경도],['2단계 · 중등도 지원',band.중등도],['3단계 · 중증(전면) 지원',band.중증]].forEach(([lb,n])=>{
-        html+='<tr><td class="lft">'+lb+'</td><td class="c">'+n+'명</td><td class="c">'+((n/count)*100).toFixed(1)+'%</td></tr>';
+      const bands=supportBands();
+      const bandCounts=[band.경도,band.중등도,band.중증];
+      html+='<p class="band">■ 지원강도 종합 분포 (완료 '+count+'명)</p><table class="st"><tr class="th"><th>지원강도 수준</th><th>점수 구간</th><th>인원</th><th>비율</th></tr>';
+      bands.forEach((bd,i)=>{
+        const n=bandCounts[i]||0;
+        html+='<tr><td class="lft">'+bd.label+'</td><td class="c">'+bd.min+' ~ '+bd.max+'점</td><td class="c">'+n+'명</td><td class="c">'+((n/count)*100).toFixed(1)+'%</td></tr>';
       });
       html+='</table><p class="note">평균 총점 '+avg+' / '+maxTotal+'점</p>';
       const map={eating:['eat_01','eat_03','eat_04','eat_06'],snacking:['snack_01','snack_02','snack_03','snack_04'],mobility:['mob_01','mob_02','mob_04','mob_07'],water:['wat_01','wat_02','wat_04','wat_05']};
@@ -2398,7 +2401,7 @@
     // 표지
     const cover='<div class="sheet cover"><div class="cv-badge">ADL × SIS</div><h1 class="cv-title">ADL 지원강도 평가 자료</h1><p class="cv-sub">중증장애인 거주시설 쉼터</p><table class="cv-meta"><tr><td class="hd">작성일</td><td>'+today+'</td></tr><tr><td class="hd">전체 거주인</td><td>'+state.residents.length+'명</td></tr><tr><td class="hd">평가 완료</td><td>'+finished.length+'명</td></tr><tr><td class="hd">포함 자료</td><td>거주인별 결과지 · 종합보고서 · 통계</td></tr></table><p class="cv-note">※ 이 문서는 앱에서 자동 생성된 백업본입니다. 브라우저에서 열어 인쇄하거나 PDF로 저장해 보관·전송할 수 있습니다.</p></div>';
     const css=`
-*{box-sizing:border-box;}
+*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
 body{font-family:'Malgun Gothic','Apple SD Gothic Neo','Noto Sans KR',sans-serif;color:#0f172a;margin:0;background:#f8fafc;}
 .toolbar{position:sticky;top:0;z-index:10;background:#1e293b;color:#fff;padding:12px 18px;display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:700;}
 .toolbar button{background:#fff;color:#1e293b;border:0;padding:9px 16px;border-radius:9px;font-weight:800;cursor:pointer;font-size:13px;}
@@ -2434,7 +2437,24 @@ h2.stitle{font-size:18px;font-weight:800;border-left:6px solid #1e293b;padding-l
 .cv-meta{max-width:420px;margin:0 auto 18px;}
 .cv-meta td{text-align:left;}
 .cv-note{font-size:11px;color:#64748b;max-width:460px;margin:0 auto;line-height:1.6;}
-@media print{body{background:#fff;}.no-print{display:none!important;}.wrap{max-width:none;padding:0;}.sheet{border:0;border-radius:0;padding:0;margin:0;}@page{size:A4;margin:12mm;}}
+@media print{
+  html,body{background:#fff;}
+  .no-print{display:none!important;}
+  .wrap{max-width:none;padding:0;}
+  .sheet{border:0;border-radius:0;padding:0;margin:0;page-break-after:always;}
+  .sheet:last-child{page-break-after:auto;}
+  /* 용지(A4)에 맞게 글자·여백 축소, 가로 넘침 방지 */
+  h2.rtitle{font-size:17px;letter-spacing:6px;}
+  .rdate{font-size:10px;margin-bottom:8px;}
+  td,th{font-size:10px;padding:3px 5px;}
+  .band{font-size:11px;margin:9px 0 4px;}
+  .level,.opinion,.repbody{font-size:10px;}
+  .opinion{min-height:0;}
+  .adl .dl{line-height:1.35;overflow-wrap:anywhere;word-break:break-word;}
+  /* 표의 행이 페이지 경계에서 잘리지 않도록 */
+  tr,td,th{page-break-inside:avoid;}
+  @page{size:A4 portrait;margin:11mm;}
+}
 `;
     let body='<div class="toolbar no-print"><span>ADL 평가 자료 백업 · '+today+'</span><button onclick="window.print()">🖨️ 인쇄 / PDF로 저장</button></div><div class="wrap">';
     body+=cover;
