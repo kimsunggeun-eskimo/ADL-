@@ -2333,7 +2333,7 @@
       const opinion=ev.opinionEdited?(ev.opinion||''):generateAutoClinicalOpinion(resId);
       const g=r.gender==='남'?'■ 남　□ 여':r.gender==='여'?'□ 남　■ 여':'□ 남　□ 여';
       const dateStr=ev.updatedAt?new Date(ev.updatedAt).toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric'}):'-';
-      return ['<div class="sheet">',
+      return ['<div class="sheet result">',
         '<h2 class="rtitle">평 가 결 과 지</h2>',
         '<p class="rdate">평가일 : '+dateStr+'</p>',
         '<table class="info"><tbody>',
@@ -2453,6 +2453,11 @@ h2.stitle{font-size:18px;font-weight:800;border-left:6px solid #1e293b;padding-l
   .adl .dl{line-height:1.35;overflow-wrap:anywhere;word-break:break-word;}
   /* 표의 행이 페이지 경계에서 잘리지 않도록 */
   tr,td,th{page-break-inside:avoid;}
+  /* 거주인 결과지는 용지(A4) 세로 전체를 채우도록: 소견 영역이 남는 공간을 채우고 서명란은 맨 아래로 */
+  .sheet.result{display:flex;flex-direction:column;min-height:270mm;}
+  .sheet.result>*{flex:0 0 auto;}
+  .sheet.result .opinion{flex:1 1 auto;}
+  .sheet.result .foot{margin-top:auto;}
   @page{size:A4 portrait;margin:11mm;}
 }
 `;
