@@ -545,7 +545,10 @@
               <button onclick="resetReportText()" class="px-3 py-2 bg-slate-100 text-slate-600 text-xs font-bold rounded-xl flex items-center gap-1.5">
                 <span class="text-xs">↺</span> 자동 복원
               </button>
-              <button onclick="window.print()" class="px-3 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl flex items-center gap-1.5">
+              <button onclick="reviewResultSpelling()" class="px-3 py-2 bg-emerald-600 text-white text-xs font-bold rounded-xl flex items-center gap-1.5">
+                <span class="text-xs">🔍</span> 맞춤법 검토
+              </button>
+              <button onclick="printResultSheet()" class="px-3 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl flex items-center gap-1.5">
                 <span class="text-xs">🖨️</span> 인쇄
               </button>
             </div>
@@ -823,6 +826,21 @@
     </div>
     <!-- 목록 -->
     <div id="resident-list-container" class="divide-y divide-slate-100 pb-20"></div>
+  </div>
+
+  <!-- 맞춤법·띄어쓰기 검토 모달 -->
+  <div id="spellcheck-modal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-slate-100 flex flex-col max-h-[90vh]">
+      <div class="flex justify-between items-center border-b border-slate-100 p-4 flex-shrink-0">
+        <h3 class="text-sm font-bold text-slate-900 flex items-center gap-1.5"><span>🔍</span> 맞춤법·띄어쓰기 검토</h3>
+        <button onclick="closeSpellModal()" class="p-1 text-slate-400 rounded-lg"><span class="text-base">✕</span></button>
+      </div>
+      <div id="spellcheck-body" class="modal-body p-4 space-y-3 text-xs flex-1 overflow-y-auto"></div>
+      <div class="border-t border-slate-100 p-3 flex justify-end gap-2 flex-shrink-0">
+        <button onclick="closeSpellModal()" class="px-3 py-2 bg-slate-100 text-slate-600 text-xs font-bold rounded-xl">닫기</button>
+        <button id="spellcheck-print-btn" onclick="closeSpellModal();window.print();" class="px-3 py-2 bg-indigo-600 text-white text-xs font-bold rounded-xl hidden">무시하고 인쇄</button>
+      </div>
+    </div>
   </div>
 
   <!-- 거주인 등록/수정 모달 -->
@@ -1568,6 +1586,81 @@
     ev.opinionEdited=false; // 자동 소견으로 되돌림
     saveEvaluationsState(resId);
     renderIndividualReportPaper();
+  }
+
+  // ===== 맞춤법·띄어쓰기 검토 (출력 전 확인용 · 참고 보조 도구) =====
+  // 자주 틀리는 맞춤법/띄어쓰기(명백한 것) 사전 [틀림, 올바름]
+  const SPELL_DICT=[
+    ['됬','됐'],['역활','역할'],['희안','희한'],['금새','금세'],['왠만','웬만'],
+    ['몇일','며칠'],['어떻해','어떡해'],['설겆이','설거지'],['통채로','통째로'],
+    ['일일히','일일이'],['틈틈히','틈틈이'],['깨끗히','깨끗이'],['더우기','더욱이'],
+    ['오랫만','오랜만'],['닥달','닦달'],['움추리','움츠리'],['꺼림직','꺼림칙'],
+    ['휄체어','휠체어'],
+    ['할수있','할 수 있'],['할수없','할 수 없'],['될수있','될 수 있'],['될수없','될 수 없'],
+    ['볼수있','볼 수 있'],['갈수있','갈 수 있'],['먹을수','먹을 수'],['것같','것 같']
+  ];
+  function findTextIssues(text){
+    const issues=[];if(!text)return issues;
+    const add=(idx,len,kind,suggestion)=>{
+      const s=Math.max(0,idx-12),e=Math.min(text.length,idx+len+12);
+      const ctx=(s>0?'…':'')+escapeHtml(text.slice(s,idx))+'<mark style="background:#fde68a;padding:0 1px;border-radius:2px;">'+escapeHtml(text.slice(idx,idx+len))+'</mark>'+escapeHtml(text.slice(idx+len,e))+(e<text.length?'…':'');
+      issues.push({kind,suggestion,context:ctx});
+    };
+    SPELL_DICT.forEach(([bad,good])=>{let i=-1;while((i=text.indexOf(bad,i+1))!==-1){add(i,bad.length,'맞춤법/띄어쓰기','‘'+bad+'’ → ‘'+good+'’');}});
+    let m;const reDbl=/ {2,}/g;while((m=reDbl.exec(text))!==null){add(m.index,m[0].length,'이중 공백','공백을 하나로');}
+    const reSp=/ +([.,!?)\]…])/g;while((m=reSp.exec(text))!==null){add(m.index,m[0].length,'문장부호 앞 공백','앞의 공백 제거');}
+    const reNo=/([.!?])([가-힣])/g;while((m=reNo.exec(text))!==null){add(m.index,2,'문장 뒤 띄어쓰기','부호 뒤 띄어쓰기 확인');}
+    [['(',')'],['[',']'],['{','}']].forEach(([o,c])=>{const no=text.split(o).length-1,nc=text.split(c).length-1;if(no!==nc)issues.push({kind:'괄호 짝 불일치',suggestion:'여는 '+o+' '+no+'개 · 닫는 '+c+' '+nc+'개',context:''});});
+    return issues;
+  }
+  function gatherResultIssues(){
+    const blocks=[];const catLabels={eating:'식사',snacking:'간식',mobility:'이동',water:'물'};
+    ['eating','snacking','mobility','water'].forEach(cat=>{
+      const el=document.getElementById('rep-desc-'+cat);
+      const t=el?el.innerText.trim():'';
+      blocks.push({label:catLabels[cat]+' 종합의견',text:t,issues:findTextIssues(t)});
+    });
+    const opEl=document.getElementById('rep-overall-clinical-opinion');
+    const opTa=opEl?opEl.querySelector('textarea'):null;
+    const opText=opTa?opTa.value.trim():(opEl?opEl.innerText.trim():'');
+    blocks.push({label:'종합 임상 소견',text:opText,issues:findTextIssues(opText)});
+    return {blocks,total:blocks.reduce((s,b)=>s+b.issues.length,0)};
+  }
+  function renderSpellModal(result,fromPrint){
+    const body=document.getElementById('spellcheck-body');
+    const pb=document.getElementById('spellcheck-print-btn');
+    if(pb)pb.classList.toggle('hidden',!fromPrint);
+    let html='';
+    if(result.total===0){
+      html+='<div class="p-3 rounded-xl bg-emerald-50 text-emerald-700 font-bold text-center">✅ 자동 검토에서 발견된 문제가 없습니다.</div>';
+    }else{
+      html+='<div class="p-3 rounded-xl bg-amber-50 text-amber-700 font-bold">⚠️ 확인할 점 '+result.total+'건이 있습니다. 내용을 확인하고 결과지에서 직접 수정해 주세요.</div>';
+    }
+    result.blocks.forEach(b=>{
+      html+='<div class="border border-slate-200 rounded-xl p-3">';
+      html+='<p class="font-bold text-slate-800 mb-1.5">'+escapeHtml(b.label)+(b.issues.length?' <span class="text-amber-600">('+b.issues.length+'건)</span>':' <span class="text-emerald-600">✓</span>')+'</p>';
+      if(b.issues.length){
+        html+='<ul class="space-y-2">';
+        b.issues.forEach(is=>{html+='<li class="text-[11px] leading-relaxed"><span class="inline-block px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-bold mr-1">'+escapeHtml(is.kind)+'</span>'+(is.context?'<span class="text-slate-700">'+is.context+'</span>':'')+'<div class="text-indigo-600 mt-0.5">→ '+escapeHtml(is.suggestion)+'</div></li>';});
+        html+='</ul>';
+      }else{html+='<p class="text-[11px] text-slate-400">문제 없음</p>';}
+      html+='</div>';
+    });
+    html+='<p class="text-[10px] text-slate-400 leading-relaxed">※ 자동 검토는 자주 틀리는 맞춤법·띄어쓰기와 기호 오류를 참고로 찾아줍니다. 모든 맞춤법을 보장하지는 않으니 최종 확인은 직접 해주세요.</p>';
+    body.innerHTML=html;
+  }
+  function openSpellModal(){const m=document.getElementById('spellcheck-modal');m.classList.remove('hidden');m.classList.add('flex');}
+  function closeSpellModal(){const m=document.getElementById('spellcheck-modal');m.classList.add('hidden');m.classList.remove('flex');}
+  function reviewResultSpelling(){
+    if(!state.currentResidentId){alert('먼저 거주인을 선택하고 결과지를 열어주세요.');return;}
+    renderSpellModal(gatherResultIssues(),false);
+    openSpellModal();
+  }
+  // 인쇄 전 자동 검토: 확인할 점이 있으면 먼저 알려주고, 없으면 바로 인쇄
+  function printResultSheet(){
+    const result=gatherResultIssues();
+    if(result.total>0){renderSpellModal(result,true);openSpellModal();}
+    else{window.print();}
   }
 
   function generateAutoClinicalOpinion(resId){
@@ -2676,7 +2769,7 @@ h2.stitle{font-size:18px;font-weight:800;border-left:6px solid #1e293b;padding-l
   }
 
   // 전역 바인딩
-  Object.assign(window,{switchTab,filterResidents,setFilterStatus,selectResident,toggleSelectMode,toggleResidentSelect,toggleSelectAll,deleteSelectedResidents,toggleAddResidentModal,saveResidentInfo,openEditResidentModal,deleteResident,switchEvalSubtab,selectQuestionOption,switchCategorySubtab,saveCurrentEvaluation,updateOpinionText,updateDescText,resetReportText,switchStatsCategory,switchFacilityReport,updateFacilityNote,resetFacilityNote,switchQuestionsCategory,saveCustomQuestions,resetQuestionsToDefault,exportToExcel,exportBackupData,triggerBackupImport,importBackupData,printResidentRoster,printBlankResultSheet,printQuestionSheetsStandalone,printAssessmentPacket,printSupportRanking,exportDocumentsHTML,clearAllData,openResidentPanel,closeResidentPanel,updateEtcText,addQuestion,deleteQuestion,addOption,deleteOption,printQuestionSheet,saveCurrentYearReport,toggleYearlyComparison,renderYearlyComparison,deleteYearlyReport});
+  Object.assign(window,{switchTab,filterResidents,setFilterStatus,selectResident,toggleSelectMode,toggleResidentSelect,toggleSelectAll,deleteSelectedResidents,toggleAddResidentModal,saveResidentInfo,openEditResidentModal,deleteResident,switchEvalSubtab,selectQuestionOption,switchCategorySubtab,saveCurrentEvaluation,updateOpinionText,updateDescText,resetReportText,reviewResultSpelling,printResultSheet,closeSpellModal,switchStatsCategory,switchFacilityReport,updateFacilityNote,resetFacilityNote,switchQuestionsCategory,saveCustomQuestions,resetQuestionsToDefault,exportToExcel,exportBackupData,triggerBackupImport,importBackupData,printResidentRoster,printBlankResultSheet,printQuestionSheetsStandalone,printAssessmentPacket,printSupportRanking,exportDocumentsHTML,clearAllData,openResidentPanel,closeResidentPanel,updateEtcText,addQuestion,deleteQuestion,addOption,deleteOption,printQuestionSheet,saveCurrentYearReport,toggleYearlyComparison,renderYearlyComparison,deleteYearlyReport});
   </script>
 </body>
 </html>
