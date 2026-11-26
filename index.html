@@ -1040,9 +1040,15 @@
             setSyncStatus('ok');
           },
           (facilityNotes) => {
-            state.facilityNotes = facilityNotes || {};
+            const next = facilityNotes || {};
+            // 작성 중(저장 대기)인 보고서는 서버 에코가 덮어쓰지 않도록 보존
+            if(_facilityDirtyKey && state.facilityNotes && state.facilityNotes[_facilityDirtyKey]!=null){
+              next[_facilityDirtyKey]=state.facilityNotes[_facilityDirtyKey];
+            }
+            state.facilityNotes = next;
             localStorage.setItem("adl_v2_facility_notes", JSON.stringify(state.facilityNotes));
-            if(state.currentTab==='reports'){renderFacilityReport();}
+            // 사용자가 보고서를 편집 중이면 다시 그리지 않음(입력 유실 방지)
+            if(state.currentTab==='reports' && !_facilityDirtyKey){renderFacilityReport();}
             setSyncStatus('ok');
           }
         );
@@ -1925,6 +1931,18 @@
       catch(e){setSyncStatus('error');console.error(e);}
     }
   }
+  // 보고서 작성 중 데이터 보존: 입력 즉시(디바운스) 저장 + 동기화 에코로부터 보호
+  let _facilitySaveTimer=null;
+  let _facilityDirtyKey=null;
+  function scheduleFacilitySave(key){
+    _facilityDirtyKey=key;
+    if(_facilitySaveTimer)clearTimeout(_facilitySaveTimer);
+    _facilitySaveTimer=setTimeout(()=>{
+      _facilitySaveTimer=null;
+      saveFacilityNotesState();
+      if(_facilityDirtyKey===key&&!_facilitySaveTimer)_facilityDirtyKey=null;
+    },600);
+  }
   function updateFacilityNote(key,text){
     if(!state.facilityNotes)state.facilityNotes={};
     const def=buildFacilityDefaultText(key);
@@ -1932,7 +1950,7 @@
     // 자동 문장과 같으면 저장 안 함(불필요한 덮어쓰기 방지)
     if(val===def.trim()){delete state.facilityNotes[key];}
     else{state.facilityNotes[key]=val;}
-    saveFacilityNotesState();
+    scheduleFacilitySave(key); // 입력 즉시 저장 → 수정 내용이 유실되지 않도록
   }
   function resetFacilityNote(key){
     if(!confirm("이 보고서의 직접 수정 내용을 자동 생성 문장으로 되돌립니다. 계속할까요?"))return;
@@ -2031,7 +2049,7 @@
       <p class="text-[11px] font-bold text-slate-500">✏️ 보고서 내용 ${edited?'<span class="text-amber-600">(수정됨)</span>':'<span class="text-slate-400 font-normal">(자동 생성 · 탭하여 수정)</span>'}</p>
       <button onclick="resetFacilityNote('${cat}')" class="text-[10px] text-slate-600 bg-slate-100 px-2 py-1 rounded-lg font-bold flex items-center gap-1">↺ 자동 복원</button>
     </div>`;
-    html+=`<div contenteditable="true" spellcheck="false" onblur="updateFacilityNote('${cat}',this.innerText)" class="border border-slate-200 rounded-xl p-3 text-[11px] leading-relaxed text-slate-700 focus:outline-none focus:border-indigo-400 focus:bg-yellow-50/40 whitespace-pre-wrap min-h-[120px] cursor-text">${escapeHtml(shown)}</div>`;
+    html+=`<div contenteditable="true" spellcheck="false" oninput="updateFacilityNote('${cat}',this.innerText)" onblur="updateFacilityNote('${cat}',this.innerText)" class="border border-slate-200 rounded-xl p-3 text-[11px] leading-relaxed text-slate-700 focus:outline-none focus:border-indigo-400 focus:bg-yellow-50/40 whitespace-pre-wrap min-h-[120px] cursor-text">${escapeHtml(shown)}</div>`;
     // 기타 특이사항 (항상 최신 데이터 기준, 읽기 전용)
     html+=buildFacilityEtcHtml(cat);
     container.innerHTML=html;
