@@ -2586,7 +2586,8 @@ h2.stitle{font-size:18px;font-weight:800;border-left:6px solid #1e293b;padding-l
   html,body{background:#fff;}
   .no-print{display:none!important;}
   .wrap{max-width:none;padding:0;}
-  .sheet{border:0;border-radius:0;padding:0;margin:0;page-break-after:always;}
+  /* 좌우 2mm 안쪽 여백: 표의 테두리(특히 오른쪽 선)가 페이지 경계에 잘리지 않도록 */
+  .sheet{border:0;border-radius:0;padding:0 2mm;margin:0;page-break-after:always;}
   .sheet:last-child{page-break-after:auto;}
   /* 본문 글자 10pt 기준, 결과지는 한 페이지에 들어오도록 간격 조정 */
   h2.rtitle{font-size:14pt;letter-spacing:5px;}
@@ -2602,7 +2603,7 @@ h2.stitle{font-size:18px;font-weight:800;border-left:6px solid #1e293b;padding-l
   .sheet.result .level{margin-top:7px;padding:7px 10px;}
   .sheet.result .opinion{min-height:16mm;padding:8px 11px;}
   .sheet.result .foot{margin-top:7px;}
-  @page{size:A4 portrait;margin:12mm;}
+  @page{size:A4 portrait;margin:10mm;}
 }
 `;
     let body='<div class="toolbar no-print"><span>ADL 평가 자료 백업 · '+today+'</span><button onclick="window.print()">🖨️ 인쇄 / PDF로 저장</button></div><div class="wrap">';
