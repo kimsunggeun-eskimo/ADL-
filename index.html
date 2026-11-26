@@ -2464,16 +2464,12 @@
         '<div class="foot"><span>ADL x SIS Ver. 2.0</span><span>중증장애인 거주시설 쉼터 (인)</span></div>',
         '</div>'].join('');
     };
-    // 종합보고서
+    // 종합보고서 — 전체 종합보고서만 포함(영역별 식사·간식·이동·물은 제외)
     const reportSection=()=>{
       let html='<div class="sheet"><h2 class="stitle">종합 보고서</h2>';
       const ov=state.facilityNotes&&state.facilityNotes['overall'];
-      if(ov!=null&&ov!=='')html+='<div class="rep"><p class="rephd">📋 전체 종합보고서</p><div class="repbody">'+nlbr(ov)+'</div></div>';
-      [['eating','🍚 식사'],['snacking','🍪 간식'],['mobility','🦽 이동'],['water','💧 물(수분)']].forEach(([c,label])=>{
-        const o=state.facilityNotes&&state.facilityNotes[c];
-        const txt=(o!=null&&o!=='')?o:buildFacilityDefaultText(c);
-        html+='<div class="rep"><p class="rephd">'+label+' 종합 평가</p><div class="repbody">'+nlbr(txt)+'</div></div>';
-      });
+      const txt=(ov!=null&&ov!=='')?ov:buildFacilityDefaultText('overall');
+      html+='<div class="rep"><p class="rephd">📋 전체 종합보고서</p><div class="repbody">'+nlbr(txt)+'</div></div>';
       return html+'</div>';
     };
     // 통계(응답 분포)
